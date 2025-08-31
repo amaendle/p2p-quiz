@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>p2pt — P2P Quiz (mesh flag, debug-only peerlist, text questions)</title>
+<style>
+  :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  body { margin: 0; background: #0b0c10; color: #eaf0f1; display: grid; place-items: center; min-height: 100vh; }
+  .app { width: min(1000px, 96vw); background: #14171a; border-radius: 16px; padding: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+  h1 { margin: 0 0 12px; font-size: 18px; font-weight: 700; display:flex; align-items:center; gap:10px; }
+  .topbar { display:grid; gap:8px; grid-template-columns: 1fr auto; align-items:center; margin-bottom: 8px; }
+  .row { display: grid; gap: 8px; grid-template-columns: 1fr auto; }
+  .statusbar { display: flex; gap: 8px; align-items: center; margin: 6px 0 12px; font-size: 14px; opacity: .9; flex-wrap: wrap; }
+  .pill { padding: 4px 10px; border-radius: 999px; background: #1f2937; border: 1px solid #2b3137; }
+  .ok { color: #10b981; border-color: #064e3b; background: #052e2a; }
+  .warn { color: #f59e0b; border-color: #7c4a03; background: #2b1e06; }
+  .bad { color: #ef4444; border-color: #7f1d1d; background: #2b0909; }
+  .grid { display:grid; gap:12px; grid-template-columns: 2fr 1fr; }
+  .panel { background:#0f1114; border:1px solid #2b3137; border-radius:12px; padding:12px; }
+  .chat { height: 40vh; min-height: 200px; overflow: auto; background: #0f1114; border: 1px solid #2b3137; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 78%; padding: 10px 12px; border-radius: 14px; line-height: 1.35; white-space: pre-wrap; word-wrap: break-word; border: 1px solid #2b3137; }
+  .you { align-self: flex-end; background: #1f2937; }
+  .them { align-self: flex-start; background: #111827; }
+  .meta { font-size: 12px; opacity: .7; margin-bottom: 4px; }
+  .peerlist { font-size: 12px; opacity:.85; }
+
+  .btn { padding:8px 12px; border-radius:10px; border:1px solid #2b3137; background:#1f2937; color:#eaf0f1; cursor:pointer; }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .btn.sm { padding:4px 8px; font-size:12px; border-radius:8px; }
+  input, textarea, select { width: 100%; padding:8px; border-radius:8px; border:1px solid #2b3137; background:#111827; color:#eaf0f1; }
+
+  /* Host controls */
+  .host-controls { display:grid; gap:8px; grid-template-columns: 1fr 1fr; align-items:start; }
+  .host-only { display:none; }
+
+  /* Scoreboard */
+  .scoreboard { display:grid; grid-template-columns: repeat(auto-fill, minmax(160px,1fr)); gap:10px; margin-top:8px; }
+  .tile { display:grid; gap:6px; place-items:center; padding:10px; background:#0f1114; border:1px solid #2b3137; border-radius:12px; }
+  .tile img { width:64px; height:64px; object-fit:cover; border-radius:50%; border:1px solid #2b3137; background:#111827; }
+  .tile .nm { font-weight:600; text-align:center; }
+  .tile .sc { font-size:12px; opacity:.85; }
+  .tile .rk { font-size:12px; opacity:.85; }
+  .tile .edit { display:flex; gap:6px; }
+  .me { outline: 2px dashed #3b82f6; outline-offset: -6px; }
+
+  .quiz { display:grid; gap:10px; }
+  .question { font-weight:700; }
+  .options { display:grid; gap:8px; }
+  .opt { display:flex; align-items:center; gap:8px; }
+  .opt button { flex:1; padding:10px; border-radius:10px; border:1px solid #2b3137; background:#111827; color:#eaf0f1; cursor:pointer; text-align:left; }
+  .opt button[disabled] { opacity:.6; cursor:not-allowed; }
+  .timer { font-size:14px; opacity:.9; }
+  .summary { display:grid; gap:6px; }
+  .bar { height:10px; background:#1f2937; border-radius:999px; overflow:hidden; border:1px solid #2b3137; }
+  .fill { height:100%; background:#3b82f6; }
+  .correct { color:#10b981; }
+
+  /* Onboarding wrapper */
+  #onboard { display:grid; gap:6px; grid-template-columns: 1fr auto auto auto; align-items:center; }
+</style>
+</head>
+<body>
+  <div class="app">
+    <h1>🧩 p2pt — P2P Quiz</h1>
+
+    <div class="topbar">
+      <div id="onboard">
+        <input id="name" placeholder="Your nickname" />
+        <label class="btn" for="avatar">Avatar</label>
+        <input id="avatar" type="file" accept="image/*" style="display:none" />
+        <button id="connect" class="btn">Join</button>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center; justify-content:flex-end">
+        <button id="newRoom" class="btn" title="Create a fresh room and host" style="display:none">New room (Host)</button>
+        <button id="copy" class="btn" style="display:none">Copy invite</button>
+      </div>
+    </div>
+
+    <div class="statusbar">
+      <span id="net" class="pill warn">idle</span>
+      <span id="self" class="pill">you: —</span>
+      <span id="peers" class="pill">peers: 0</span>
+    </div>
+    <div id="peerlist" class="peerlist"></div>
+    <div id="trackers" class="peerlist" style="display:none"></div>
+
+    <div class="grid">
+      <div>
+        <div id="chat" class="chat"></div>
+        <div class="row">
+          <input id="text" placeholder="Type a message…" />
+          <button id="send" class="btn">Send</button>
+        </div>
+        <div class="panel">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px">
+            <div style="font-weight:700">Players</div>
+            <div id="roomInfo" class="peerlist"></div>
+          </div>
+          <div id="scoreboard" class="scoreboard"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div id="hostBar" class="peerlist" style="margin-bottom:8px; display:none"></div>
+        <div id="hostPanel" class="host-only">
+          <div class="host-controls">
+            <div style="grid-column: 1 / -1">
+              <label>Question</label>
+              <textarea id="qText" rows="3" placeholder="Type your quiz question..."></textarea>
+            </div>
+            <div>
+              <label>Type</label>
+              <select id="qType">
+                <option value="mcq">Multiple choice</option>
+                <option value="text">Text input</option>
+              </select>
+            </div>
+            <div>
+              <label>Duration (seconds)</label>
+              <input id="qDur" type="number" min="5" value="20" />
+            </div>
+            <div id="mcqCorrectWrap">
+              <label>Correct option</label>
+              <select id="qCorrect">
+                <option value="0">A</option>
+                <option value="1">B</option>
+                <option value="2">C</option>
+                <option value="3">D</option>
+              </select>
+            </div>
+            <div id="textCorrectWrap" style="display:none">
+              <label>Correct text (auto-mark)</label>
+              <input id="qCorrectText" placeholder="Exact or case-insensitive match" />
+            </div>
+            <div class="mcqOpt"><input id="opt0" placeholder="Option A" /></div>
+            <div class="mcqOpt"><input id="opt1" placeholder="Option B" /></div>
+            <div class="mcqOpt"><input id="opt2" placeholder="Option C" /></div>
+            <div class="mcqOpt"><input id="opt3" placeholder="Option D" /></div>
+          </div>
+          <div style="margin-top:8px; display:flex; gap:8px">
+            <button id="sendQ" class="btn">Broadcast question</button>
+          </div>
+        </div>
+        <div id="quiz" class="quiz"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden input for avatar change after onboarding -->
+  <input id="avatarChange" type="file" accept="image/*" style="display:none" />
+
+  <!-- Defensive shim: sanitize ICE server URLs -->
+  <script>
+    (function hardenRTCPeerConnection(){
+      const Native = window.RTCPeerConnection || window.webkitRTCPeerConnection;
+      if (!Native) return;
+      function normalizeList(urls) {
+        const arr = Array.isArray(urls) ? urls : (urls ? [urls] : []);
+        return arr
+          .map(u => (typeof u === "string" ? u.split("?")[0].trim() : u))
+          .filter(u => typeof u === "string" && u.length > 0)
+          .filter(u => !/twilio\.com/i.test(u));
+      }
+      function cleanIce(cfg){
+        if (!cfg) return cfg;
+        const out = {...cfg};
+        if (out.iceServers) {
+          out.iceServers = out.iceServers
+            .map(s => {
+              const urls = normalizeList(s.urls || s.url);
+              if (!urls.length) return null;
+              const copy = {...s}; delete copy.url; copy.urls = urls; return copy;
+            })
+            .filter(Boolean);
+        }
+        return out;
+      }
+      function Wrapped(cfg, ...rest){ return new Native(cleanIce(cfg), ...rest); }
+      Wrapped.prototype = Native.prototype;
+      window.RTCPeerConnection = Wrapped;
+      if (window.webkitRTCPeerConnection) window.webkitRTCPeerConnection = Wrapped;
+    })();
+  </script>
+
+  <!-- P2PT UMD (global P2PT) -->
+  <script src="https://cdn.jsdelivr.net/gh/subins2000/p2pt/dist/p2pt.umd.min.js"></script>
+
+  <script>
+    // ------- DOM helpers & flags
+    const $ = (s) => document.querySelector(s);
+    const chatEl = $("#chat"), nameEl = $("#name"), avatarEl = $("#avatar"),
+          netEl = $("#net"), selfEl = $("#self"), peersEl = $("#peers"),
+          peerlistEl = $("#peerlist"), trackersEl = $("#trackers"),
+          connectBtn = $("#connect"), copyBtn = $("#copy"), newRoomBtn = $("#newRoom"),
+          sendBtn = $("#send"), textEl = $("#text"), onboardEl = $("#onboard"),
+          hostPanel = $("#hostPanel"), quizEl = $("#quiz"), sendQBtn = $("#sendQ"),
+          qText = $("#qText"), qDur = $("#qDur"), qCorrect = $("#qCorrect"),
+          qType = $("#qType"), qCorrectText = $("#qCorrectText"),
+          opt0 = $("#opt0"), opt1 = $("#opt1"), opt2 = $("#opt2"), opt3 = $("#opt3"),
+          scoreboardEl = $("#scoreboard"), hostBar = $("#hostBar"), roomInfo = $("#roomInfo"),
+          avatarChangeEl = $("#avatarChange"), mcqCorrectWrap = $("#mcqCorrectWrap"),
+          textCorrectWrap = $("#textCorrectWrap");
+
+    const fmtTime = () => new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    function addMessage({text, from="them", meta}) {
+      const wrap=document.createElement("div"), bubble=document.createElement("div");
+      bubble.className=`msg ${from==="you"?"you":"them"}`;
+      if(meta){const m=document.createElement("div");m.className="meta";m.textContent=meta;wrap.appendChild(m);} 
+      bubble.textContent=text;wrap.appendChild(bubble);chatEl.appendChild(wrap);
+      chatEl.scrollTop=chatEl.scrollHeight;
+    }
+    function setNet(txt,kind="warn"){netEl.textContent=txt;netEl.className=`pill ${kind}`;}
+
+    const params=new URLSearchParams(location.search);
+    const DEBUG = params.has('debug');
+    const MESH = params.has('mesh');
+    if (DEBUG) {
+      trackersEl.style.display = 'block';
+      peerlistEl.style.display = 'block';
+    } else {
+      trackersEl.style.display = 'none';
+      peerlistEl.style.display = 'none';
+    }
+
+    const defaultName=params.get("name")||`guest-${Math.random().toString(36).slice(2,6)}`;
+    const hasRoom = params.has("room") && params.get("room");
+    let room = hasRoom ? params.get("room") : `quiz-${Math.random().toString(36).slice(2,8)}`; // create fresh if none provided
+    let isHost = !hasRoom; // host when creating a room
+    let myRole = isHost ? 'host' : 'guest';
+
+    // Stable UID per browser
+    let myUid = localStorage.getItem('quiz_uid') || `u-${Math.random().toString(36).slice(2,10)}`;
+    localStorage.setItem('quiz_uid', myUid);
+
+    nameEl.value=defaultName;
+    roomInfo.textContent = `room: ${room}`;
+
+    // Host-only controls visibility
+    function refreshHostControls(){
+      hostPanel.style.display = isHost ? "block" : "none";
+      hostBar.style.display   = isHost ? "block" : "none";
+      newRoomBtn.style.display = isHost ? 'inline-block' : 'none';
+      copyBtn.style.display = isHost ? 'inline-block' : 'none';
+      if(isHost) hostBar.textContent = `You are HOST of "${room}" — compose and broadcast questions.`;
+    }
+    refreshHostControls();
+
+    // Local profile (name + avatar)
+    let myProfile = { uid: myUid, name: nameEl.value, avatar: null, score: 0 };
+
+    avatarEl.addEventListener('change', ()=>{
+      const f = avatarEl.files && avatarEl.files[0]; if(!f) return;
+      const reader = new FileReader(); reader.onload = ()=>{ myProfile.avatar = reader.result; };
+      reader.readAsDataURL(f);
+    });
+
+    // ICE + Simple-Peer config
+    const iceServers = [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" }
+    ];
+    const simplePeerConfig = { iceServers };
+
+    // Trackers
+    const TRACKERS = [
+      "wss://tracker.openwebtorrent.com",
+      "wss://tracker.webtorrent.dev"
+    ];
+
+    let p2p=null; const peers=new Map(), nicks=new Map();
+
+    // Roster: uid -> {uid, name, avatar, score}
+    const roster = new Map();
+    // Map wire peer.id -> uid (for answer attribution)
+    const peerIdToUid = new Map();
+    // Star topology tracking
+    let hostPeerId = null; // who is the host (as seen by guests)
+
+    function updatePeers(){
+      peersEl.textContent=`peers: ${peers.size}`;
+      peerlistEl.textContent=[...peers.keys()].map(id=>nicks.get(id)||id.slice(0,8)).join(", ");
+      renderScoreboard();
+    }
+
+    // ------- Quiz state
+    let questionSeq = 0; // host-only incrementing id
+    let currentQ = null; // {id, type, text, options?, correct?, correctText?, deadlineMs}
+    let myAnswer = null; // index or text
+    let timerInt = null;
+
+    // host-only answer collection: qId -> Map(uid -> value)
+    const hostAnswers = new Map();
+
+    function broadcast(obj) {
+      const payload = JSON.stringify(obj);
+      peers.forEach(peer => { try{ p2p.send(peer, payload); }catch(e){ console.warn("send failed:", e); } });
+    }
+    function sendTo(peer, obj){ try{ p2p.send(peer, JSON.stringify(obj)); }catch(e){ console.warn('sendTo failed', e); } }
+
+    function sendProfile(){ broadcast({ t: 'profile', uid: myUid, role: myRole, name: myProfile.name, avatar: myProfile.avatar, score: myProfile.score }); }
+
+    function upsertRosterFromProfile(uid, data){
+      const prev = roster.get(uid) || { uid, name: `user-${String(uid).slice(-4)}`, avatar: null, score: 0 };
+      const merged = {
+        uid,
+        name: (data.name ?? prev.name),
+        avatar: (data.avatar !== undefined ? data.avatar : prev.avatar),
+        score: Number(data.score !== undefined ? data.score : prev.score)
+      };
+      roster.set(uid, merged);
+    }
+
+    function joinRoom(roomId){
+      p2p?.destroy?.(); peers.clear(); nicks.clear(); peerIdToUid.clear(); roster.clear(); updatePeers(); hostPeerId=null;
+      if(typeof P2PT==="undefined"){ setNet("lib missing","bad"); return; }
+
+      // show self immediately in roster
+      upsertRosterFromProfile(myUid, myProfile);
+
+      p2p = new P2PT(TRACKERS, roomId, { config: simplePeerConfig, trickle: true });
+      setNet("connecting…","warn");
+
+      // Tracker diagnostics (only if DEBUG)
+      trackersEl.textContent = "";
+      p2p.on("trackerconnect",(tracker,stats)=>{
+        if(!DEBUG) return;
+        const line = `${tracker.announceUrl} ✓ (${stats.connected}/${stats.total})`;
+        trackersEl.textContent = trackersEl.textContent ? (trackersEl.textContent + " | " + line) : line;
+      });
+      p2p.on("trackerwarning",(err)=>{
+        if(!DEBUG) return;
+        const msg = `tracker warning: ${err?.message||err}`;
+        trackersEl.textContent = trackersEl.textContent ? (trackersEl.textContent + " | " + msg) : msg;
+        console.warn("tracker warning:", err);
+      });
+
+      p2p.on("peerconnect",(peer)=>{
+        peers.set(peer.id, peer);
+        try{ p2p.send(peer, JSON.stringify({t:"intro", uid: myUid, role: myRole, name: myProfile.name, avatar: myProfile.avatar, score: myProfile.score })); }catch{}
+        updatePeers(); setNet("online","ok");
+        addMessage({text:`connected ${peer.id}`, meta:`system • ${fmtTime()}`});
+      });
+      p2p.on("peerclose",(peer)=>{
+        peers.delete(peer.id); nicks.delete(peer.id); peerIdToUid.delete(peer.id);
+        updatePeers(); addMessage({text:`disconnected ${peer.id}`, meta:`system • ${fmtTime()}`});
+        if(!peers.size) setNet("waiting","warn");
+      });
+
+      p2p.on("msg",(peer,msg)=>{
+        try{
+          const d = typeof msg === "string" ? JSON.parse(msg) : msg;
+          if(d?.t==="intro"||d?.t==="profile"){ 
+            const uid = d.uid || peer.id; const theirRole = d.role || 'guest';
+            peerIdToUid.set(peer.id, uid);
+            nicks.set(peer.id, d.name);
+            upsertRosterFromProfile(uid, { name: d.name, avatar: d.avatar, score: d.score });
+            // Star topology enforcement unless MESH mode
+            if(!MESH && myRole==='guest' && theirRole!=='host'){
+              try{ peer.destroy(); }catch{}
+              peers.delete(peer.id);
+              updatePeers();
+              return;
+            }
+            if(myRole==='guest' && theirRole==='host'){ hostPeerId = peer.id; }
+            updatePeers(); 
+            return; 
+          }
+          if(d?.t==="chat"){
+            const author = (d.from && d.from.name) ? d.from.name : (nicks.get(peer.id) || peer.id.slice(0,8));
+            addMessage({text:d.text, meta:`${author} • ${fmtTime()}`});
+            // host relays chat only in STAR mode
+            if(isHost && !MESH && !d.relay && (!d.from || d.from.uid !== myUid)){
+              peers.forEach(p => { if(p.id !== peer.id){ sendTo(p, { t:'chat', text:d.text, from: d.from || { uid: peerIdToUid.get(peer.id)||peer.id, name: author }, relay:true }); }});
+            }
+            return; }
+          if(d?.t==="quiz"){ onQuizReceived(d); return; }
+          if(d?.t==="answer"){ onAnswerReceived(peer.id, d); return; }
+          if(d?.t==="summary"){ onSummaryReceived(d); return; }
+          if(d?.t==="scoreboard"){ onScoreboard(d); return; }
+          if(d?.t==="state"){ onStateReceived(d); return; }
+          if(d?.t==="stateReq"){ if(isHost) sendStateTo(peer); return; }
+        }catch(e){ console.warn("bad msg", e, msg); }
+        addMessage({text:String(msg), meta:`${peer.id.slice(0,8)} • ${fmtTime()}`});
+      });
+
+      p2p.start();
+      setTimeout(()=>{ selfEl.textContent=`you: ${myProfile.name}`; sendProfile();
+        // Hide onboarding once joined
+        onboardEl.style.display = 'none';
+        // If we're a guest, request state so the host can sync us
+        if(!isHost){ setTimeout(()=>{ broadcast({ t:'stateReq' }); }, 300); }
+      }, 300);
+    }
+
+    function sendChat(t){
+      if(!t.trim()) return;
+      addMessage({text:t, from:"you", meta:`${myProfile.name} • ${fmtTime()}`});
+      const pkt = { t:"chat", text:t, from:{ uid: myUid, name: myProfile.name } };
+      const payload = JSON.stringify(pkt);
+      peers.forEach(peer => { try{ p2p.send(peer, payload); }catch(e){ console.warn("send failed:", e); } });
+    }
+
+    // ------- Host: create & send question
+    function refreshHostTypeUI(){
+      const isText = qType.value === 'text';
+      mcqCorrectWrap.style.display = isText ? 'none' : 'block';
+      document.querySelectorAll('.mcqOpt').forEach(el=> el.style.display = isText ? 'none' : 'block');
+      textCorrectWrap.style.display = isText ? 'block' : 'none';
+    }
+    qType.addEventListener('change', refreshHostTypeUI);
+    refreshHostTypeUI();
+
+    function hostBroadcastQuestion(){
+      if(!isHost){ alert('Only the host can send questions.'); return; }
+      const text = qText.value.trim();
+      const dur = Math.max(5, Number(qDur.value||20));
+      const qId = ++questionSeq;
+      const deadlineMs = Date.now() + dur*1000;
+      const type = qType.value || 'mcq';
+      let pkt;
+      if(type === 'text'){
+        const correctText = (qCorrectText.value||'').trim();
+        if(!text){ alert('Please enter a question.'); return; }
+        pkt = { t:'quiz', id:qId, type:'text', text, correctText, deadlineMs };
+      } else {
+        const options = [opt0.value, opt1.value, opt2.value, opt3.value].map(s => s.trim()).filter(Boolean);
+        if(!text || options.length < 2){ alert('Please enter a question and at least 2 options.'); return; }
+        const correct = Math.min(options.length-1, Math.max(0, Number(qCorrect.value||0)));
+        pkt = { t:'quiz', id:qId, type:'mcq', text, options, correct, deadlineMs };
+      }
+      currentQ = pkt; myAnswer = null; renderQuiz(pkt);
+      hostAnswers.set(qId, new Map());
+      broadcast(pkt);
+      addMessage({text:`📣 Sent Q${qId}: "${text}" (${dur}s)`, meta:`host • ${fmtTime()}`});
+      clearTimeout(hostBroadcastQuestion._t);
+      hostBroadcastQuestion._t = setTimeout(()=>hostFinishQuestion(qId), dur*1000 + 200);
+    }
+
+    function normText(s){ return String(s||'').trim().replace(/\s+/g,' ').toLowerCase(); }
+
+    function hostFinishQuestion(qId){
+      const ansMap = hostAnswers.get(qId) || new Map();
+      const q = (currentQ && currentQ.id===qId) ? currentQ : null;
+      const total = ansMap.size;
+
+      if(q && q.type === 'text'){
+        const correctText = q.correctText||'';
+        const target = normText(correctText);
+        let correctCount = 0;
+        const hist = new Map(); // norm -> {text,count}
+        ansMap.forEach((val)=>{
+          const raw = String(val||'').trim(); if(!raw) return;
+          const n = normText(raw);
+          const rec = hist.get(n) || { text: raw, count: 0 };
+          rec.count++; hist.set(n, rec);
+          if(target && n === target) correctCount++;
+        });
+        const top = [...hist.values()].sort((a,b)=>b.count-a.count).slice(0,5);
+        const summary = { t:'summary', id:qId, type:'text', total, correctText, correctCount, top };
+        broadcast(summary); onSummaryReceived(summary);
+      } else {
+        const opts = (q && q.options) ? q.options : [];
+        const counts = new Array(opts.length).fill(0);
+        ansMap.forEach(idx => { if(typeof idx === 'number' && counts[idx] !== undefined) counts[idx]++; });
+        const summary = { t:'summary', id:qId, type:'mcq', counts, total, correct: (q?q.correct:0) };
+        broadcast(summary); onSummaryReceived(summary);
+      }
+
+      // Update scores
+      ansMap.forEach((val, uid)=>{
+        const r = roster.get(uid) || { uid, name:`user-${String(uid).slice(-4)}`, avatar:null, score:0 };
+        let ok = false;
+        if(q && q.type==='mcq') ok = (val === q.correct);
+        else if(q && q.type==='text') ok = (normText(val) === normText(q.correctText||'')) && (q.correctText||'').length>0;
+        if(ok) r.score += 1;
+        roster.set(uid, r);
+      });
+      if(myAnswer!=null && q){
+        let meOk=false; if(q.type==='mcq') meOk = (myAnswer===q.correct); else if(q.type==='text') meOk = (normText(myAnswer)===normText(q.correctText||'')) && (q.correctText||'').length>0;
+        if(meOk){ myProfile.score += 1; upsertRosterFromProfile(myUid, myProfile); }
+      }
+
+      broadcastScoreboard();
+      addMessage({text:`✅ Summary Q${qId}${q && q.type==='text' ? `: ${total} answers (${roster.size} players)` : ''}`, meta:`host • ${fmtTime()}`});
+      currentQ = null; myAnswer = null; clearInterval(timerInt); timerInt=null;
+    }
+
+    function broadcastScoreboard(){
+      const pkt = { t:'scoreboard', board: buildBoardSnapshot() };
+      broadcast(pkt);
+      onScoreboard(pkt);
+    }
+    function buildBoardSnapshot(){ return [ ...roster.values() ]; }
+
+    // ------- Peers: receive quiz & state
+    function onQuizReceived(pkt){
+      currentQ = pkt; myAnswer = null; renderQuiz(pkt);
+      clearInterval(timerInt); timerInt = setInterval(updateTimer, 200);
+    }
+
+    function onAnswerReceived(peerId, d){
+      if(!isHost) return; // only host collects
+      const { id } = d;
+      if(!hostAnswers.has(id)) return;
+      const m = hostAnswers.get(id);
+      const uid = peerIdToUid.get(peerId);
+      if(!uid) return;
+      const q = (currentQ && currentQ.id===id) ? currentQ : null; if(!q) return;
+      if(Date.now() <= q.deadlineMs + 50){
+        if(q.type==='mcq') m.set(uid, d.index);
+        else if(q.type==='text'){ const txt = String(d.text||'').trim(); if(txt) m.set(uid, txt); }
+      }
+    }
+
+    function onSummaryReceived(d){
+      if(d.type==='text') renderSummaryText(d); else renderSummaryMCQ(d);
+      clearInterval(timerInt); timerInt=null; currentQ=null; myAnswer=null;
+    }
+
+    function onScoreboard(d){
+      const incoming = new Map();
+      (d.board||[]).forEach(rec=>{ if(rec && rec.uid) incoming.set(rec.uid, { uid: rec.uid, name: rec.name, avatar: rec.avatar, score: Number(rec.score||0) }); });
+      if(!incoming.has(myUid)) incoming.set(myUid, { ...myProfile });
+      roster.clear(); incoming.forEach((v,k)=>roster.set(k,v));
+      const mine = roster.get(myUid); if(mine) myProfile.score = mine.score;
+      renderScoreboard();
+    }
+
+    function onStateReceived(d){ if(d.currentQ && Date.now() < d.currentQ.deadlineMs){ onQuizReceived(d.currentQ); } }
+
+    function sendStateTo(peer){
+      sendTo(peer, { t:'scoreboard', board: buildBoardSnapshot() });
+      if(currentQ && Date.now() < currentQ.deadlineMs){ sendTo(peer, { t:'state', currentQ }); }
+    }
+
+    // ------- UI: quiz render & answer
+    function renderQuiz(pkt){
+      const { id, type, text, options, deadlineMs } = pkt;
+      const leftSec = Math.max(0, Math.ceil((deadlineMs - Date.now())/1000));
+      if(type==='text'){
+        quizEl.innerHTML = ''+
+          `<div class="question">Q${id}. ${escapeHtml(text)}</div>`+
+          `<div class="timer">⏳ <span id="timeleft">${leftSec}</span>s left</div>`+
+          `<div class="row" style="grid-template-columns: 1fr auto"><input id="answerText" placeholder="Type your answer" /><button id="sendText" class="btn">Submit</button></div>`+
+          `<div id="answerNote" style="font-size:12px;opacity:.8"></div>`;
+        const btn = document.getElementById('sendText');
+        const inp = document.getElementById('answerText');
+        btn.onclick = submitTextAnswer;
+        inp.onkeydown = e => { if(e.key==='Enter'){ e.preventDefault(); submitTextAnswer(); } };
+      } else {
+        quizEl.innerHTML = ''+
+          `<div class="question">Q${id}. ${escapeHtml(text)}</div>`+
+          `<div class="timer">⏳ <span id="timeleft">${leftSec}</span>s left</div>`+
+          `<div class="options">`+
+          options.map((o,i)=>`<div class="opt"><button data-idx="${i}" id="optbtn${i}"> ${String.fromCharCode(65+i)}. ${escapeHtml(o||'')} </button></div>`).join('')+
+          `</div>`+
+          `<div id="answerNote" style="font-size:12px;opacity:.8"></div>`;
+        options.forEach((_,i)=>{ const b = document.getElementById(`optbtn${i}`); b.onclick = ()=>submitMCQAnswer(i); });
+      }
+    }
+
+    function submitMCQAnswer(index){
+      if(!currentQ || currentQ.type!=='mcq') return; if(myAnswer!=null) return;
+      myAnswer = index;
+      currentQ.options.forEach((_,i)=>{ const b = document.getElementById(`optbtn${i}`); if(b){ b.disabled = true; if(i===index) b.textContent = '✔ '+b.textContent.trim(); } });
+      const note = document.getElementById('answerNote'); if(note) note.textContent = `You picked ${String.fromCharCode(65+index)}. Waiting for results…`;
+      broadcast({ t:'answer', id: currentQ.id, index });
+    }
+
+    function submitTextAnswer(){
+      if(!currentQ || currentQ.type!=='text') return; if(myAnswer!=null) return;
+      const inp = document.getElementById('answerText'); const val = (inp.value||'').trim();
+      if(!val) return;
+      myAnswer = val;
+      inp.disabled = true; const btn=document.getElementById('sendText'); if(btn) btn.disabled=true;
+      const note = document.getElementById('answerNote'); if(note) note.textContent = `You answered: "${val}". Waiting for results…`;
+      broadcast({ t:'answer', id: currentQ.id, text: val });
+    }
+
+    function renderSummaryMCQ({id, counts, total, correct}){
+      const max = Math.max(1, ...counts);
+      quizEl.innerHTML = ''+
+        `<div class="question">Q${id} — Results</div>`+
+        `<div class="summary">`+
+        counts.map((c,i)=>{
+          const pct = total? Math.round((c/total)*100):0;
+          return `
+            <div>${String.fromCharCode(65+i)}${(i===correct)?' <span class="correct">(correct)</span>':''} — ${c}/${total} (${pct}%)</div>
+            <div class="bar"><div class="fill" style="width:${(c/max)*100}%"></div></div>
+          `;
+        }).join('')+
+        `</div>`;
+    }
+
+    function escapeHTMLAttr(s){ return (String(s||'').replace(/["&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]))); }
+
+    function renderSummaryText({id, total, correctText, correctCount, top}){
+      const safeCorrect = escapeHtml(correctText||'');
+      const rows = (top||[]).map(r=>`<div>“${escapeHtml(r.text)}” — ${r.count}</div>`).join('');
+      quizEl.innerHTML = ''+
+        `<div class="question">Q${id} — Results</div>`+
+        `<div class="summary">`+
+        `<div><b>Correct:</b> “${safeCorrect}” — ${correctCount}/${total}</div>`+
+        `<div style="margin-top:6px"><b>Top answers:</b></div>`+
+        `${rows || '<div>(no answers)</div>'}`+
+        `</div>`;
+    }
+
+    function renderScoreboard(){
+      const list = [ ...roster.values() ];
+      list.sort((a,b)=> (b.score||0)-(a.score||0) || (a.name||'').localeCompare(b.name||''));
+      scoreboardEl.innerHTML = list.map((r,idx)=>{
+        const rk = idx+1; const nm = escapeHtml(r.name||'—'); const sc = Number(r.score||0);
+        const img = r.avatar ? `<img src="${r.avatar}">` : `<img src="" alt="" />`;
+        const me = (r.uid===myUid) ? ' me' : '';
+        const edit = (r.uid===myUid) ? `<div class="edit"><button id="renameMe" class="btn sm">Rename</button><button id="changeAvatar" class="btn sm">Change avatar</button></div>` : '';
+        return `<div class="tile${me}">${img}<div class="nm">${nm}</div><div class="sc">Score: ${sc}</div><div class="rk">#${rk}</div>${edit}</div>`;
+      }).join('');
+      attachSelfEditHandlers();
+    }
+
+    function attachSelfEditHandlers(){
+      const rn = document.getElementById('renameMe');
+      const ca = document.getElementById('changeAvatar');
+      if(rn){ rn.onclick = ()=>{ const v = prompt('Enter a new name:', myProfile.name||''); if(!v) return; myProfile.name = v.trim().slice(0,50)||myProfile.name; selfEl.textContent=`you: ${myProfile.name}`; upsertRosterFromProfile(myUid, myProfile); sendProfile(); renderScoreboard(); }; }
+      if(ca){ ca.onclick = ()=>{ avatarChangeEl.click(); }; }
+    }
+
+    avatarChangeEl.addEventListener('change', ()=>{
+      const f = avatarChangeEl.files && avatarChangeEl.files[0]; if(!f) return;
+      const reader = new FileReader(); reader.onload = ()=>{ myProfile.avatar = reader.result; upsertRosterFromProfile(myUid, myProfile); sendProfile(); renderScoreboard(); };
+      reader.readAsDataURL(f);
+      avatarChangeEl.value = '';
+    });
+
+    function updateTimer(){
+      if(!currentQ) return; const left = Math.max(0, Math.ceil((currentQ.deadlineMs - Date.now())/1000));
+      const tl = document.getElementById('timeleft'); if(tl) tl.textContent = left;
+      if(left<=0){
+        if(currentQ.type==='mcq') currentQ.options.forEach((_,i)=>{ const b=$(`#optbtn${i}`); if(b) b.disabled=true; });
+        if(currentQ.type==='text'){ const inp=$('#answerText'); const btn=$('#sendText'); if(inp) inp.disabled=true; if(btn) btn.disabled=true; }
+      }
+    }
+
+    function escapeHtml(s) {
+      const map = {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"};
+      return (s || "").replace(/[&<>"']/g, c => map[c]);
+    }
+
+    // ------- UI wiring
+    sendBtn.onclick = () => { sendChat(textEl.value); textEl.value=""; };
+    textEl.onkeydown = e => { if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); sendBtn.click(); } };
+
+    connectBtn.onclick = () => {
+      myProfile.name = nameEl.value.trim() || myProfile.name;
+      upsertRosterFromProfile(myUid, myProfile);
+      joinRoom(room || "p2pt-quiz-room");
+    };
+
+    copyBtn.onclick = async () => {
+      const u = new URL(location.href);
+      u.searchParams.set("room", room);
+      u.searchParams.delete("name");
+      try { await navigator.clipboard.writeText(u.toString()); setNet("invite copied","ok"); }
+      catch (e) { alert("Copy failed. Here is your link: \n" + u.toString()); }
+    };
+
+    if(sendQBtn) sendQBtn.onclick = hostBroadcastQuestion;
+
+    newRoomBtn.onclick = () => {
+      const u = new URL(location.href);
+      u.searchParams.delete('room'); if(nameEl.value) u.searchParams.set('name', nameEl.value);
+      window.history.replaceState({}, '', u.toString());
+      isHost = true; myRole='host'; room = `quiz-${Math.random().toString(36).slice(2,8)}`; roomInfo.textContent = `room: ${room}`;
+      refreshHostControls();
+      currentQ = null; myAnswer = null; clearInterval(timerInt); timerInt=null; hostAnswers.clear(); roster.clear();
+      upsertRosterFromProfile(myUid, myProfile);
+      joinRoom(room); setNet('waiting','warn');
+    };
+
+    // Auto-join on load (host only). Guests must enter a name and click Join.
+    if (isHost) { joinRoom(room); setNet("waiting","warn"); onboardEl.style.display='none'; }
+    else { setNet("enter name, then Join","warn"); }
+  </script>
+</body>
+</html>
