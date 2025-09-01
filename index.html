@@ -593,7 +593,6 @@
         `</div>`;
     }
 
-    function escapeHTMLAttr(s){ return (String(s||'').replace(/["&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]))); }
 
     function renderSummaryText({id, total, correctText, correctCount, top}){
       const safeCorrect = escapeHtml(correctText||'');
@@ -612,7 +611,7 @@
       list.sort((a,b)=> (b.score||0)-(a.score||0) || (a.name||'').localeCompare(b.name||''));
       scoreboardEl.innerHTML = list.map((r,idx)=>{
         const rk = idx+1; const nm = escapeHtml(r.name||'—'); const sc = Number(r.score||0);
-        const img = r.avatar ? `<img src="${r.avatar}">` : `<img src="" alt="" />`;
+        const img = r.avatar ? `<img src="${escapeHtml(r.avatar)}">` : `<img src="" alt="" />`;
         const me = (r.uid===myUid) ? ' me' : '';
         const edit = (r.uid===myUid) ? `<div class="edit"><button id="renameMe" class="btn sm">Rename</button><button id="changeAvatar" class="btn sm">Change avatar</button></div>` : '';
         return `<div class="tile${me}">${img}<div class="nm">${nm}</div><div class="sc">Score: ${sc}</div><div class="rk">#${rk}</div>${edit}</div>`;
