@@ -430,6 +430,16 @@
     return [ax,ay];
   }
 
+  function refreshLocalInput(){
+    const [kax,kay] = computeAxis();
+    const usingTouch = (touchControls.style.display === "flex");
+    const ax = usingTouch ? touchAx : kax;
+    const ay = usingTouch ? touchAy : kay;
+    myInput.ax = ax;
+    myInput.ay = ay;
+    return [ax, ay];
+  }
+
   // Touch joystick
   let touchAx=0, touchAy=0, touching=false;
   function enableTouchIfNeeded(){
@@ -473,6 +483,7 @@
   stick.addEventListener("pointerup",   ()=>{ touching=false; touchAx=0; touchAy=0; setKnob(stick.clientWidth/2, stick.clientHeight/2); });
   stick.addEventListener("pointercancel",()=>{ touching=false; touchAx=0; touchAy=0; setKnob(stick.clientWidth/2, stick.clientHeight/2); });
   dashBtn.onclick = ()=> { myInput.dash = true; };
+  dashBtn.addEventListener("pointerdown", (e)=>{ e.preventDefault(); myInput.dash = true; });
 
   helpBtn.onclick = ()=>{
     alert(
@@ -652,15 +663,17 @@ Tips:
       if(inp.dash && t >= p.dashCdUntil){
         // dash direction: prefer input, else current velocity, else random
         let dx = inp.ax, dy = inp.ay;
+        let dashSource = "input";
         if(!dx && !dy){
           const v = Math.hypot(p.vx,p.vy);
-          if(v > 1){ dx = p.vx/v; dy = p.vy/v; }
-          else { const a=rand(0,Math.PI*2); dx=Math.cos(a); dy=Math.sin(a); }
+          if(v > 1){ dx = p.vx/v; dy = p.vy/v; dashSource = "velocity"; }
+          else { const a=rand(0,Math.PI*2); dx=Math.cos(a); dy=Math.sin(a); dashSource = "random"; }
         }
         p.vx = dx * dashSpeed;
         p.vy = dy * dashSpeed;
         p.dashCdUntil = t + dashCdMs;
         p.invulnUntil = t + dashInvMs;
+        announceDash(uid, dx, dy, dashSource);
         // consume dash flag (so it doesn't repeat)
         inp.dash = false;
         inputByUid.set(uid, inp);
@@ -934,6 +947,16 @@ Tips:
   sendBtn.onclick = ()=>{ sendChat(textEl.value); textEl.value=""; };
   textEl.onkeydown = e => { if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); sendBtn.click(); } };
 
+  function announceDash(uid, dx, dy, source){
+    if(!isHost) return;
+    const rec = roster.get(uid);
+    const name = rec?.name || uid.slice(-4);
+    const dir = `(${dx.toFixed(2)}, ${dy.toFixed(2)})`;
+    const text = `[dash] ${name} → ${dir} via ${source}`;
+    addMessage({ text, meta:`system • ${fmtTime()}` });
+    broadcast({ t:"chat", text, from:{ uid: myUid, name:"system" }, relay:true });
+  }
+
   // ============================================================
   //  JOIN / P2PT setup (adapted from your original)
   // ============================================================
@@ -1090,12 +1113,15 @@ Tips:
     // render loop always local (host and guests)
     let raf;
     const frame = ()=>{
+      refreshLocalInput();
       // guests: keep local input sending at frame rate (cheap packets)
       if(!isHost) sendMyInput();
 
       // host: also uses its own local input
       if(isHost){
         // host's own input is local computed each frame, but applied in simStep()
+        myInput.seq = (myInput.seq + 1) >>> 0;
+        myInput.t = now();
         inputByUid.set(myUid, { ax: myInput.ax, ay: myInput.ay, dash: myInput.dash, seq: myInput.seq, t: myInput.t });
         // one-shot dash for host (mirror guest behavior, prevents re-triggering)
         myInput.dash = false;
@@ -1129,15 +1155,12 @@ Tips:
 
   function sendMyInput(){
     // update myInput from keyboard/touch
-    const [kax,kay] = computeAxis();
-    const ax = (touchControls.style.display === "flex") ? touchAx : kax;
-    const ay = (touchControls.style.display === "flex") ? touchAy : kay;
-    myInput.ax = ax; myInput.ay = ay;
+    refreshLocalInput();
     myInput.seq = (myInput.seq + 1) >>> 0;
     myInput.t = now();
 
     // send to host (star topology)
-    const pkt = { t:"input", uid: myUid, ax, ay, dash: !!myInput.dash, seq: myInput.seq, time: myInput.t };
+    const pkt = { t:"input", uid: myUid, ax: myInput.ax, ay: myInput.ay, dash: !!myInput.dash, seq: myInput.seq, time: myInput.t };
     // only send to hostPeerId if known, else broadcast
     if(hostPeerId && peers.has(hostPeerId)){
       sendTo(peers.get(hostPeerId), pkt);
