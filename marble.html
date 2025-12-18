@@ -1,0 +1,1215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>p2pt — Marble Brawler (Host-Auth P2P)</title>
+<style>
+  :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color-scheme: dark; }
+  body { margin: 0; background: #0b0c10; color: #eaf0f1; display: grid; place-items: center; min-height: 100vh; }
+  .app { width: min(1100px, 96vw); background: #14171a; border-radius: 16px; padding: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+  h1 { margin: 0 0 12px; font-size: 18px; font-weight: 800; display:flex; align-items:center; gap:10px; }
+  .topbar { display:grid; gap:8px; grid-template-columns: 1fr auto; align-items:center; margin-bottom: 8px; }
+  .row { display: grid; gap: 8px; grid-template-columns: 1fr auto; }
+  .statusbar { display: flex; gap: 8px; align-items: center; margin: 6px 0 12px; font-size: 14px; opacity: .92; flex-wrap: wrap; }
+  .pill { padding: 4px 10px; border-radius: 999px; background: #1f2937; border: 1px solid #2b3137; }
+  .ok { color: #10b981; border-color: #064e3b; background: #052e2a; }
+  .warn { color: #f59e0b; border-color: #7c4a03; background: #2b1e06; }
+  .bad { color: #ef4444; border-color: #7f1d1d; background: #2b0909; }
+
+  .grid { display:grid; gap:12px; grid-template-columns: 2fr 1fr; }
+  .panel { background:#0f1114; border:1px solid #2b3137; border-radius:12px; padding:12px; }
+  #arenaWrap { position: relative; display:grid; gap:10px; }
+  canvas { width: 100%; height: auto; aspect-ratio: 16/10; background: radial-gradient(120% 120% at 50% 30%, #1b2430, #0b0c10 70%); border-radius: 14px; border:1px solid #2b3137; display:block; }
+  .hud { display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
+  .hud .left { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .hud .right { display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:flex-end; }
+
+  .btn { padding:8px 12px; border-radius:10px; border:1px solid #2b3137; background:#1f2937; color:#eaf0f1; cursor:pointer; }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .btn.sm { padding:4px 8px; font-size:12px; border-radius:8px; }
+  input { width: 100%; padding:8px; border-radius:8px; border:1px solid #2b3137; background:#111827; color:#eaf0f1; }
+
+  .scoreboard { display:grid; grid-template-columns: repeat(auto-fill, minmax(160px,1fr)); gap:10px; margin-top:8px; }
+  .tile { display:grid; gap:6px; place-items:center; padding:10px; background:#0f1114; border:1px solid #2b3137; border-radius:12px; }
+  .tile img { width:56px; height:56px; object-fit:cover; border-radius:50%; border:1px solid #2b3137; background:#111827; }
+  .tile .nm { font-weight:700; text-align:center; }
+  .tile .sc { font-size:12px; opacity:.9; text-align:center; }
+  .tile .rk { font-size:12px; opacity:.8; }
+  .me { outline: 2px dashed #3b82f6; outline-offset: -6px; }
+
+  /* chat (optional) */
+  .chat { height: 24vh; min-height: 160px; overflow: auto; background: #0f1114; border: 1px solid #2b3137; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 78%; padding: 10px 12px; border-radius: 14px; line-height: 1.35; white-space: pre-wrap; word-wrap: break-word; border: 1px solid #2b3137; }
+  .you { align-self: flex-end; background: #1f2937; }
+  .them { align-self: flex-start; background: #111827; }
+  .meta { font-size: 12px; opacity: .7; margin-bottom: 4px; }
+
+  /* Onboarding wrapper */
+  #onboard { display:grid; gap:6px; grid-template-columns: 1fr auto auto auto; align-items:center; }
+
+  /* Mobile controls */
+  #touchControls { display:none; gap:10px; align-items:center; justify-content:space-between; }
+  .stick {
+    width: 120px; height: 120px; border-radius: 999px;
+    border: 1px solid #2b3137; background: rgba(17,24,39,.55);
+    position: relative; touch-action: none;
+  }
+  .knob {
+    width: 44px; height: 44px; border-radius: 999px;
+    border: 1px solid #2b3137; background: rgba(31,41,55,.9);
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%);
+  }
+  .touchBtn { width: 120px; height: 120px; border-radius: 999px; font-weight:800; font-size: 16px; }
+  .peerlist { font-size: 12px; opacity:.85; }
+</style>
+</head>
+<body>
+  <div class="app">
+    <h1>⚪️ p2pt — Marble Brawler</h1>
+
+    <div class="topbar">
+      <div id="onboard">
+        <input id="name" placeholder="Your nickname" />
+        <label class="btn" for="avatar">Avatar</label>
+        <input id="avatar" type="file" accept="image/*" style="display:none" />
+        <button id="connect" class="btn">Join</button>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center; justify-content:flex-end">
+        <button id="newRoom" class="btn" title="Create a fresh room and host" style="display:none">New room (Host)</button>
+        <button id="copy" class="btn" style="display:none">Copy invite</button>
+      </div>
+    </div>
+
+    <div class="statusbar">
+      <span id="net" class="pill warn">idle</span>
+      <span id="self" class="pill">you: —</span>
+      <span id="roomInfo" class="pill">room: —</span>
+      <span id="peers" class="pill">peers: 0</span>
+      <span id="rolePill" class="pill">role: —</span>
+    </div>
+
+    <div class="grid">
+      <!-- Arena + chat -->
+      <div id="arenaWrap">
+        <div class="hud">
+          <div class="left">
+            <span class="pill" id="hpPill">HP: —</span>
+            <span class="pill" id="dashPill">Dash: —</span>
+            <span class="pill" id="fpsPill">—</span>
+          </div>
+          <div class="right">
+            <button id="respawn" class="btn sm" style="display:none">Respawn</button>
+            <button id="help" class="btn sm">Controls</button>
+          </div>
+        </div>
+
+        <canvas id="c" width="960" height="600"></canvas>
+
+        <div id="touchControls">
+          <div class="stick" id="stick">
+            <div class="knob" id="knob"></div>
+          </div>
+          <button id="dashBtn" class="btn touchBtn">DASH</button>
+        </div>
+
+        <div class="panel">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px">
+            <div style="font-weight:800">Chat</div>
+            <div class="peerlist" id="peerlist"></div>
+          </div>
+          <div id="chat" class="chat"></div>
+          <div class="row">
+            <input id="text" placeholder="Type a message…" />
+            <button id="send" class="btn">Send</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scoreboard -->
+      <div class="panel">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px">
+          <div style="font-weight:800">Players</div>
+          <div class="peerlist" id="tip">Host runs physics • Guests send input</div>
+        </div>
+        <div id="scoreboard" class="scoreboard"></div>
+        <div style="margin-top:10px; font-size:12px; opacity:.85; line-height:1.4">
+          <b>Goal:</b> Knock others into hazards / reduce HP to 0.<br>
+          <b>Dash:</b> Big shove + brief invuln window.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden input for avatar change after onboarding -->
+  <input id="avatarChange" type="file" accept="image/*" style="display:none" />
+
+  <!-- Defensive shim: sanitize ICE server URLs -->
+  <script>
+    (function hardenRTCPeerConnection(){
+      const Native = window.RTCPeerConnection || window.webkitRTCPeerConnection;
+      if (!Native) return;
+      function normalizeList(urls) {
+        const arr = Array.isArray(urls) ? urls : (urls ? [urls] : []);
+        return arr
+          .map(u => (typeof u === "string" ? u.split("?")[0].trim() : u))
+          .filter(u => typeof u === "string" && u.length > 0)
+          .filter(u => !/twilio\.com/i.test(u));
+      }
+      function cleanIce(cfg){
+        if (!cfg) return cfg;
+        const out = {...cfg};
+        if (out.iceServers) {
+          out.iceServers = out.iceServers
+            .map(s => {
+              const urls = normalizeList(s.urls || s.url);
+              if (!urls.length) return null;
+              const copy = {...s}; delete copy.url; copy.urls = urls; return copy;
+            })
+            .filter(Boolean);
+        }
+        return out;
+      }
+      function Wrapped(cfg, ...rest){ return new Native(cleanIce(cfg), ...rest); }
+      Wrapped.prototype = Native.prototype;
+      window.RTCPeerConnection = Wrapped;
+      if (window.webkitRTCPeerConnection) window.webkitRTCPeerConnection = Wrapped;
+    })();
+  </script>
+
+  <!-- P2PT UMD (global P2PT) -->
+  <script src="https://cdn.jsdelivr.net/gh/subins2000/p2pt/dist/p2pt.umd.min.js"></script>
+
+  <script>
+  // ============================================================
+  //  p2pt Marble Brawler — single-file, host-authoritative
+  // ============================================================
+
+  // ------- DOM helpers
+  const $ = (s) => document.querySelector(s);
+  const nameEl = $("#name"), avatarEl = $("#avatar"), connectBtn = $("#connect"),
+        copyBtn = $("#copy"), newRoomBtn = $("#newRoom"),
+        netEl = $("#net"), selfEl = $("#self"), roomInfoEl = $("#roomInfo"),
+        peersEl = $("#peers"), rolePill = $("#rolePill"),
+        chatEl = $("#chat"), textEl = $("#text"), sendBtn = $("#send"),
+        peerlistEl = $("#peerlist"),
+        scoreboardEl = $("#scoreboard"),
+        avatarChangeEl = $("#avatarChange"),
+        respawnBtn = $("#respawn"),
+        hpPill = $("#hpPill"), dashPill = $("#dashPill"), fpsPill = $("#fpsPill"),
+        helpBtn = $("#help"),
+        canvas = $("#c"), ctx = canvas.getContext("2d"),
+        touchControls = $("#touchControls"),
+        stick = $("#stick"), knob = $("#knob"), dashBtn = $("#dashBtn"),
+        onboardEl = $("#onboard");
+
+  const fmtTime = () => new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+  function addMessage({text, from="them", meta}) {
+    const wrap=document.createElement("div"), bubble=document.createElement("div");
+    bubble.className=`msg ${from==="you"?"you":"them"}`;
+    if(meta){const m=document.createElement("div");m.className="meta";m.textContent=meta;wrap.appendChild(m);}
+    bubble.textContent=text;wrap.appendChild(bubble);chatEl.appendChild(wrap);
+    chatEl.scrollTop=chatEl.scrollHeight;
+  }
+  function setNet(txt,kind="warn"){ netEl.textContent=txt; netEl.className=`pill ${kind}`; }
+
+  // ------- URL params / flags (keeps your original conventions)
+  const params = new URLSearchParams(location.search);
+  const DEBUG = params.has("debug");
+  const MESH  = params.has("mesh");
+
+  const defaultName = params.get("name") || `guest-${Math.random().toString(36).slice(2,6)}`;
+  const hasRoom = params.has("room") && params.get("room");
+  let room = hasRoom ? params.get("room") : `brawl-${Math.random().toString(36).slice(2,8)}`;
+  let isHost = !hasRoom;
+  let myRole = isHost ? "host" : "guest";
+
+  // Stable UID per browser
+  let myUid = localStorage.getItem("brawl_uid") || `u-${Math.random().toString(36).slice(2,10)}`;
+  localStorage.setItem("brawl_uid", myUid);
+
+  nameEl.value = defaultName;
+  roomInfoEl.textContent = `room: ${room}`;
+  rolePill.textContent = `role: ${myRole}`;
+
+  // Host buttons
+  function refreshHostControls(){
+    newRoomBtn.style.display = isHost ? "inline-block" : "none";
+    copyBtn.style.display    = isHost ? "inline-block" : "none";
+  }
+  refreshHostControls();
+
+  // ------- Profile
+  let myProfile = {
+    uid: myUid,
+    name: nameEl.value,
+    avatar: null,
+    score: 0,
+    kills: 0,
+    deaths: 0
+  };
+
+  avatarEl.addEventListener("change", ()=>{
+    const f = avatarEl.files && avatarEl.files[0]; if(!f) return;
+    const reader = new FileReader();
+    reader.onload = ()=>{ myProfile.avatar = reader.result; };
+    reader.readAsDataURL(f);
+  });
+
+  // ------- ICE config
+  const iceServers = [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" }
+  ];
+  const simplePeerConfig = { iceServers };
+
+  // Trackers
+  const TRACKERS = [
+    "wss://tracker.openwebtorrent.com",
+    "wss://tracker.webtorrent.dev"
+  ];
+
+  // P2P
+  let p2p=null;
+  const peers = new Map();     // peerId -> peer
+  const nicks = new Map();     // peerId -> name
+  const roster = new Map();    // uid -> {uid,name,avatar,score,kills,deaths}
+  const peerIdToUid = new Map();
+  let hostPeerId = null;       // guest learns this when connected to host
+
+  function upsertRoster(uid, data){
+    const prev = roster.get(uid) || { uid, name:`user-${String(uid).slice(-4)}`, avatar:null, score:0, kills:0, deaths:0 };
+    const merged = {
+      uid,
+      name: (data.name ?? prev.name),
+      avatar: (data.avatar !== undefined ? data.avatar : prev.avatar),
+      score: Number(data.score !== undefined ? data.score : prev.score),
+      kills: Number(data.kills !== undefined ? data.kills : prev.kills),
+      deaths: Number(data.deaths !== undefined ? data.deaths : prev.deaths),
+    };
+    roster.set(uid, merged);
+  }
+
+  function updatePeersUI(){
+    peersEl.textContent = `peers: ${peers.size}`;
+    peerlistEl.textContent = [...peers.keys()].map(id => nicks.get(id) || id.slice(0,8)).join(", ");
+    renderScoreboard();
+  }
+
+  function broadcast(obj){
+    const payload = JSON.stringify(obj);
+    peers.forEach(peer => { try{ p2p.send(peer, payload); }catch(e){} });
+  }
+  function sendTo(peer, obj){ try{ p2p.send(peer, JSON.stringify(obj)); }catch(e){} }
+
+  function sendProfile(){
+    broadcast({ t:"profile", uid: myUid, role: myRole, name: myProfile.name, avatar: myProfile.avatar,
+                score: myProfile.score, kills: myProfile.kills, deaths: myProfile.deaths });
+  }
+
+  // ============================================================
+  //  GAME: constants & state
+  // ============================================================
+  const GAME = {
+    W: canvas.width,
+    H: canvas.height,
+    arenaR: Math.min(canvas.width, canvas.height) * 0.43,
+    cx: canvas.width/2,
+    cy: canvas.height/2,
+    hazardRingR: Math.min(canvas.width, canvas.height) * 0.50, // outside = damage/kill
+    tickHz: 60,
+    netHz: 20,
+    dt: 1/60,
+    maxPlayers: 16
+  };
+
+  // Entities (host-authoritative)
+  // players[uid] = {x,y,vx,vy,r,hp,alive,invulnUntil,dashCdUntil,colorHue,lastHitBy,lastHitAt}
+  const players = new Map();
+
+  // Guest input snapshot to send to host
+  let myInput = { ax:0, ay:0, dash:false, seq:0, t:0 };
+  const inputByUid = new Map(); // host receives inputs here
+
+  // timers
+  let simTimer = null;
+  let netTimer = null;
+
+  // performance
+  let lastFrameT = performance.now();
+  let fpsSm = 60;
+
+  // helpers
+  const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+  const len = (x,y)=>Math.hypot(x,y);
+  const norm = (x,y)=> {
+    const l = Math.hypot(x,y) || 1;
+    return [x/l, y/l];
+  };
+  const rand = (a,b)=>a+Math.random()*(b-a);
+  function now(){ return performance.now(); }
+
+  function colorFromUid(uid){
+    // stable-ish hue
+    let h=0; for(const ch of String(uid)) h = (h*31 + ch.charCodeAt(0))>>>0;
+    return (h % 360);
+  }
+
+  function spawnPlayer(uid){
+    const a = rand(0, Math.PI*2);
+    const r = rand(0, GAME.arenaR*0.6);
+    const x = GAME.cx + Math.cos(a)*r;
+    const y = GAME.cy + Math.sin(a)*r;
+    const hue = colorFromUid(uid);
+    players.set(uid, {
+      x,y,vx:0,vy:0,
+      r: 16,
+      hp: 100,
+      alive: true,
+      invulnUntil: 0,
+      dashCdUntil: 0,
+      hue,
+      lastHitBy: null,
+      lastHitAt: 0
+    });
+  }
+
+  function ensurePlayer(uid){
+    if(!players.has(uid)) spawnPlayer(uid);
+    return players.get(uid);
+  }
+
+  function killPlayer(uid, killerUid){
+    const p = players.get(uid); if(!p) return;
+    p.alive = false;
+    p.hp = 0;
+    p.vx = p.vy = 0;
+    // stats
+    const victimRec = roster.get(uid) || {uid, name:`user-${uid.slice(-4)}`, avatar:null, score:0, kills:0, deaths:0};
+    victimRec.deaths = (victimRec.deaths||0) + 1;
+    roster.set(uid, victimRec);
+
+    if(killerUid && killerUid !== uid){
+      const killerRec = roster.get(killerUid) || {uid:killerUid, name:`user-${killerUid.slice(-4)}`, avatar:null, score:0, kills:0, deaths:0};
+      killerRec.kills = (killerRec.kills||0) + 1;
+      killerRec.score = (killerRec.score||0) + 1; // score = kills
+      roster.set(killerUid, killerRec);
+    }
+  }
+
+  function respawnPlayer(uid){
+    const p = players.get(uid);
+    if(!p){ spawnPlayer(uid); return; }
+    spawnPlayer(uid);
+    const np = players.get(uid);
+    np.invulnUntil = now() + 900;
+    np.dashCdUntil = now() + 600;
+  }
+
+  // ============================================================
+  //  INPUT (keyboard + touch)
+  // ============================================================
+  const keys = new Set();
+  window.addEventListener("keydown", (e)=>{
+    if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
+    keys.add(e.key.toLowerCase());
+    if(e.key === " ") myInput.dash = true;
+  }, {passive:false});
+  window.addEventListener("keyup", (e)=>{ keys.delete(e.key.toLowerCase()); }, {passive:true});
+
+  function computeAxis(){
+    let ax=0, ay=0;
+    if(keys.has("w")||keys.has("arrowup")) ay -= 1;
+    if(keys.has("s")||keys.has("arrowdown")) ay += 1;
+    if(keys.has("a")||keys.has("arrowleft")) ax -= 1;
+    if(keys.has("d")||keys.has("arrowright")) ax += 1;
+    if(ax||ay){
+      const [nx,ny]=norm(ax,ay);
+      ax=nx; ay=ny;
+    }
+    return [ax,ay];
+  }
+
+  // Touch joystick
+  let touchAx=0, touchAy=0, touching=false;
+  function enableTouchIfNeeded(){
+    const coarse = matchMedia("(pointer: coarse)").matches;
+    if(coarse){
+      touchControls.style.display = "flex";
+    }
+  }
+  enableTouchIfNeeded();
+
+  function setKnob(px,py){
+    knob.style.left = px + "px";
+    knob.style.top  = py + "px";
+  }
+
+  const stickRect = ()=> stick.getBoundingClientRect();
+  function onStickMove(clientX, clientY){
+    const r = stickRect();
+    const cx = r.left + r.width/2;
+    const cy = r.top  + r.height/2;
+    const dx = clientX - cx;
+    const dy = clientY - cy;
+    const max = r.width*0.34;
+    const d = Math.hypot(dx,dy);
+    const s = d > max ? (max/d) : 1;
+    const px = r.width/2 + dx*s;
+    const py = r.height/2 + dy*s;
+    setKnob(px,py);
+    touchAx = clamp(dx/max, -1, 1);
+    touchAy = clamp(dy/max, -1, 1);
+    const l = Math.hypot(touchAx,touchAy);
+    if(l>1){ touchAx/=l; touchAy/=l; }
+  }
+
+  stick.addEventListener("pointerdown", (e)=>{
+    touching = true;
+    stick.setPointerCapture(e.pointerId);
+    onStickMove(e.clientX, e.clientY);
+  });
+  stick.addEventListener("pointermove", (e)=>{ if(!touching) return; onStickMove(e.clientX, e.clientY); });
+  stick.addEventListener("pointerup",   ()=>{ touching=false; touchAx=0; touchAy=0; setKnob(stick.clientWidth/2, stick.clientHeight/2); });
+  stick.addEventListener("pointercancel",()=>{ touching=false; touchAx=0; touchAy=0; setKnob(stick.clientWidth/2, stick.clientHeight/2); });
+  dashBtn.onclick = ()=> { myInput.dash = true; };
+
+  helpBtn.onclick = ()=>{
+    alert(
+`Controls:
+• Move: WASD / Arrow Keys (or joystick on mobile)
+• Dash: Space (or DASH button)
+Tips:
+• Dashing bumps others hard
+• Falling outside the hazard ring counts as a death`
+    );
+  };
+
+  // ============================================================
+  //  RENDER
+  // ============================================================
+  function drawArena(){
+    const {cx,cy,arenaR,hazardRingR} = GAME;
+    ctx.save();
+
+    // floor glow
+    ctx.beginPath();
+    ctx.arc(cx,cy,arenaR,0,Math.PI*2);
+    ctx.fillStyle = "rgba(59,130,246,0.06)";
+    ctx.fill();
+
+    // arena boundary
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = "rgba(234,240,241,0.18)";
+    ctx.beginPath();
+    ctx.arc(cx,cy,arenaR,0,Math.PI*2);
+    ctx.stroke();
+
+    // hazard ring (visual)
+    ctx.setLineDash([10,10]);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(245,158,11,0.25)";
+    ctx.beginPath();
+    ctx.arc(cx,cy,hazardRingR,0,Math.PI*2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // a few bumpers (static circles) to make it brawler-ish
+    const bumps = [
+      [cx-arenaR*0.35, cy-arenaR*0.12, 18],
+      [cx+arenaR*0.30, cy+arenaR*0.10, 22],
+      [cx,             cy+arenaR*0.28, 16],
+      [cx,             cy-arenaR*0.30, 16],
+    ];
+    for(const [bx,by,br] of bumps){
+      ctx.beginPath();
+      ctx.arc(bx,by,br,0,Math.PI*2);
+      ctx.fillStyle = "rgba(17,24,39,0.85)";
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "rgba(234,240,241,0.18)";
+      ctx.stroke();
+    }
+
+    ctx.restore();
+    return bumps;
+  }
+
+  function drawPlayer(uid, p){
+    const rec = roster.get(uid);
+    const name = rec?.name || uid.slice(-4);
+    const alive = p.alive;
+
+    // body
+    ctx.save();
+    ctx.translate(p.x,p.y);
+
+    // shadow
+    ctx.beginPath();
+    ctx.ellipse(0, p.r*0.55, p.r*0.9, p.r*0.45, 0, 0, Math.PI*2);
+    ctx.fillStyle = "rgba(0,0,0,0.28)";
+    ctx.fill();
+
+    // marble
+    ctx.beginPath();
+    ctx.arc(0,0,p.r,0,Math.PI*2);
+    const inv = (now() < p.invulnUntil);
+    const alpha = alive ? (inv ? 0.65 : 1.0) : 0.25;
+    ctx.fillStyle = `hsla(${p.hue}, 75%, 55%, ${alpha})`;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(234,240,241,0.22)";
+    ctx.stroke();
+
+    // highlight
+    ctx.beginPath();
+    ctx.arc(-p.r*0.35,-p.r*0.35,p.r*0.35,0,Math.PI*2);
+    ctx.fillStyle = "rgba(255,255,255,0.10)";
+    ctx.fill();
+
+    // name tag
+    ctx.font = "12px system-ui";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.fillStyle = "rgba(234,240,241,0.9)";
+    ctx.fillText(name, 0, -p.r-6);
+
+    // HP bar
+    const w = 42, h = 6;
+    ctx.globalAlpha = alive ? 1 : 0.25;
+    ctx.fillStyle = "rgba(31,41,55,0.9)";
+    ctx.fillRect(-w/2, p.r+6, w, h);
+    ctx.fillStyle = "rgba(16,185,129,0.95)";
+    ctx.fillRect(-w/2, p.r+6, w*(clamp(p.hp,0,100)/100), h);
+    ctx.strokeStyle = "rgba(234,240,241,0.18)";
+    ctx.strokeRect(-w/2, p.r+6, w, h);
+
+    ctx.restore();
+  }
+
+  function render(){
+    // clear
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    // arena + bumpers
+    const bumps = drawArena();
+
+    // draw players
+    players.forEach((p,uid)=> drawPlayer(uid,p));
+
+    // self HUD
+    const me = players.get(myUid);
+    if(me){
+      hpPill.textContent = `HP: ${me.hp|0}${me.alive ? "" : " (down)"}`;
+      const cd = Math.max(0, (me.dashCdUntil - now())/1000);
+      dashPill.textContent = cd>0 ? `Dash: ${cd.toFixed(1)}s` : "Dash: READY";
+      respawnBtn.style.display = (!me.alive) ? "inline-block" : "none";
+    } else {
+      hpPill.textContent = "HP: —";
+      dashPill.textContent = "Dash: —";
+      respawnBtn.style.display = "none";
+    }
+
+    // fps
+    const t = performance.now();
+    const dt = t - lastFrameT; lastFrameT = t;
+    const fps = 1000/(dt||16.7);
+    fpsSm = fpsSm*0.9 + fps*0.1;
+    fpsPill.textContent = `fps: ${fpsSm.toFixed(0)}`;
+  }
+
+  // ============================================================
+  //  PHYSICS (host)
+  // ============================================================
+  function simStep(){
+    const t = now();
+
+    // apply inputs (host)
+    players.forEach((p,uid)=>{
+      // dead players: no movement
+      if(!p.alive) return;
+
+      const inp = inputByUid.get(uid) || {ax:0, ay:0, dash:false};
+      const accel = 980;          // px/s^2
+      const maxSpeed = 420;       // px/s
+      const friction = 0.92;      // per tick
+      const dashSpeed = 650;
+      const dashCdMs = 1200;
+      const dashInvMs = 180;
+
+      // movement accel
+      p.vx += inp.ax * accel * GAME.dt;
+      p.vy += inp.ay * accel * GAME.dt;
+
+      // clamp speed
+      const sp = Math.hypot(p.vx,p.vy);
+      if(sp > maxSpeed){
+        const k = maxSpeed/sp;
+        p.vx *= k; p.vy *= k;
+      }
+
+      // dash
+      if(inp.dash && t >= p.dashCdUntil){
+        // dash direction: prefer input, else current velocity, else random
+        let dx = inp.ax, dy = inp.ay;
+        if(!dx && !dy){
+          const v = Math.hypot(p.vx,p.vy);
+          if(v > 1){ dx = p.vx/v; dy = p.vy/v; }
+          else { const a=rand(0,Math.PI*2); dx=Math.cos(a); dy=Math.sin(a); }
+        }
+        p.vx = dx * dashSpeed;
+        p.vy = dy * dashSpeed;
+        p.dashCdUntil = t + dashCdMs;
+        p.invulnUntil = t + dashInvMs;
+        // consume dash flag (so it doesn't repeat)
+        inp.dash = false;
+        inputByUid.set(uid, inp);
+      }
+
+      // integrate
+      p.x += p.vx * GAME.dt;
+      p.y += p.vy * GAME.dt;
+
+      // friction
+      p.vx *= friction;
+      p.vy *= friction;
+    });
+
+    // bumper collisions (static)
+    const bumps = [
+      [GAME.cx-GAME.arenaR*0.35, GAME.cy-GAME.arenaR*0.12, 18],
+      [GAME.cx+GAME.arenaR*0.30, GAME.cy+GAME.arenaR*0.10, 22],
+      [GAME.cx,                  GAME.cy+GAME.arenaR*0.28, 16],
+      [GAME.cx,                  GAME.cy-GAME.arenaR*0.30, 16],
+    ];
+    players.forEach((p)=>{
+      if(!p.alive) return;
+      for(const [bx,by,br] of bumps){
+        const dx = p.x - bx, dy = p.y - by;
+        const d = Math.hypot(dx,dy);
+        const minD = p.r + br;
+        if(d > 0 && d < minD){
+          const nx = dx/d, ny = dy/d;
+          const push = (minD - d) + 0.5;
+          p.x += nx*push;
+          p.y += ny*push;
+          // bounce
+          const vn = p.vx*nx + p.vy*ny;
+          if(vn < 0){
+            p.vx -= (1.6)*vn*nx;
+            p.vy -= (1.6)*vn*ny;
+          }
+        }
+      }
+    });
+
+    // player-player collisions
+    const uids = [...players.keys()];
+    for(let i=0;i<uids.length;i++){
+      const aUid = uids[i]; const A = players.get(aUid);
+      if(!A || !A.alive) continue;
+      for(let j=i+1;j<uids.length;j++){
+        const bUid = uids[j]; const B = players.get(bUid);
+        if(!B || !B.alive) continue;
+        const dx = B.x - A.x, dy = B.y - A.y;
+        const d = Math.hypot(dx,dy);
+        const minD = A.r + B.r;
+        if(d > 0 && d < minD){
+          const nx = dx/d, ny = dy/d;
+          const overlap = (minD - d);
+
+          // separate (equal mass)
+          A.x -= nx * overlap*0.5;
+          A.y -= ny * overlap*0.5;
+          B.x += nx * overlap*0.5;
+          B.y += ny * overlap*0.5;
+
+          // impulse
+          const relVx = B.vx - A.vx;
+          const relVy = B.vy - A.vy;
+          const relN = relVx*nx + relVy*ny;
+          if(relN < 0){
+            const restitution = 0.55;
+            const jImpulse = -(1+restitution) * relN / 2; // /2 because equal mass
+            A.vx -= jImpulse*nx;
+            A.vy -= jImpulse*ny;
+            B.vx += jImpulse*nx;
+            B.vy += jImpulse*ny;
+          }
+
+          // damage if one is dashing (high speed) and not invulnerable window ended
+          const tnow = now();
+          const aInv = tnow < A.invulnUntil;
+          const bInv = tnow < B.invulnUntil;
+          const aSp = Math.hypot(A.vx,A.vy);
+          const bSp = Math.hypot(B.vx,B.vy);
+          const hitThresh = 360;
+
+          if(aSp > hitThresh && !bInv){
+            const dmg = clamp((aSp - hitThresh)*0.06, 6, 22);
+            B.hp -= dmg;
+            B.lastHitBy = aUid; B.lastHitAt = tnow;
+          }
+          if(bSp > hitThresh && !aInv){
+            const dmg = clamp((bSp - hitThresh)*0.06, 6, 22);
+            A.hp -= dmg;
+            A.lastHitBy = bUid; A.lastHitAt = tnow;
+          }
+
+          if(A.hp <= 0 && A.alive){
+            killPlayer(aUid, A.lastHitBy);
+          }
+          if(B.hp <= 0 && B.alive){
+            killPlayer(bUid, B.lastHitBy);
+          }
+        }
+      }
+    }
+
+    // boundary constraint + hazard
+    players.forEach((p,uid)=>{
+      if(!p.alive) return;
+
+      const dx = p.x - GAME.cx;
+      const dy = p.y - GAME.cy;
+      const d = Math.hypot(dx,dy);
+
+      // hazard outside hazardRingR: quick death (ring-out)
+      if(d > GAME.hazardRingR){
+        const killer = (p.lastHitBy && (now()-p.lastHitAt) < 4000) ? p.lastHitBy : null;
+        killPlayer(uid, killer);
+        return;
+      }
+
+      // soft keep-inside main arena
+      if(d > GAME.arenaR - p.r){
+        const ndx = dx/(d||1), ndy = dy/(d||1);
+        const targetD = GAME.arenaR - p.r;
+        const push = d - targetD;
+        p.x -= ndx * push;
+        p.y -= ndy * push;
+        // reflect velocity a bit
+        const vn = p.vx*ndx + p.vy*ndy;
+        if(vn > 0){
+          p.vx -= 1.2*vn*ndx;
+          p.vy -= 1.2*vn*ndy;
+        }
+      }
+    });
+  }
+
+  // ============================================================
+  //  NETWORK SYNC (host->guests state snapshots)
+  // ============================================================
+  function buildStateSnapshot(){
+    const ps = [];
+    players.forEach((p,uid)=>{
+      ps.push([uid, p.x, p.y, p.vx, p.vy, p.r, p.hp, p.alive?1:0, p.invulnUntil, p.dashCdUntil, p.hue]);
+    });
+    return {
+      t:"state",
+      time: now(),
+      players: ps,
+      board: [...roster.values()]
+    };
+  }
+
+  function applyStateSnapshot(d){
+    // update roster
+    const incoming = new Map();
+    (d.board||[]).forEach(rec=>{
+      if(rec && rec.uid){
+        incoming.set(rec.uid, {
+          uid: rec.uid, name: rec.name, avatar: rec.avatar,
+          score: Number(rec.score||0), kills: Number(rec.kills||0), deaths: Number(rec.deaths||0)
+        });
+      }
+    });
+    if(!incoming.has(myUid)) incoming.set(myUid, { ...myProfile });
+    roster.clear(); incoming.forEach((v,k)=>roster.set(k,v));
+    const mine = roster.get(myUid);
+    if(mine){
+      myProfile.score = mine.score;
+      myProfile.kills = mine.kills;
+      myProfile.deaths = mine.deaths;
+    }
+
+    // update players
+    const seen = new Set();
+    for(const row of (d.players||[])){
+      const [uid,x,y,vx,vy,r,hp,alive,inv,cd,hue] = row;
+      seen.add(uid);
+      const p = players.get(uid) || {};
+      p.x=x; p.y=y; p.vx=vx; p.vy=vy; p.r=r; p.hp=hp; p.alive=!!alive; p.invulnUntil=inv; p.dashCdUntil=cd; p.hue=hue;
+      players.set(uid,p);
+    }
+    // optional: prune unknowns slowly (don’t instantly delete to avoid flicker)
+    players.forEach((_,uid)=>{ if(!seen.has(uid) && uid!==myUid){ /* keep */ } });
+
+    renderScoreboard();
+  }
+
+  function broadcastState(){
+    if(!isHost) return;
+    broadcast(buildStateSnapshot());
+  }
+
+  // ============================================================
+  //  SCOREBOARD UI
+  // ============================================================
+  function renderScoreboard(){
+    const list = [...roster.values()];
+    // sort by kills/score desc, then deaths asc, then name
+    list.sort((a,b)=> (b.kills||b.score||0) - (a.kills||a.score||0)
+                 || (a.deaths||0) - (b.deaths||0)
+                 || (a.name||"").localeCompare(b.name||""));
+    scoreboardEl.innerHTML = list.map((r,idx)=>{
+      const rk = idx+1;
+      const nm = escapeHtml(r.name||"—");
+      const img = r.avatar ? `<img src="${escapeHtml(r.avatar)}">` : `<img src="" alt="" />`;
+      const me = (r.uid===myUid) ? " me" : "";
+      const p = players.get(r.uid);
+      const hp = p ? (p.alive ? (p.hp|0) : 0) : 0;
+      const alive = p ? p.alive : false;
+      const edit = (r.uid===myUid)
+        ? `<div style="display:flex; gap:6px"><button id="renameMe" class="btn sm">Rename</button><button id="changeAvatar" class="btn sm">Change avatar</button></div>`
+        : "";
+      return `
+        <div class="tile${me}">
+          ${img}
+          <div class="nm">${nm}</div>
+          <div class="sc">
+            Kills: <b>${Number(r.kills||0)}</b> · Deaths: ${Number(r.deaths||0)}<br>
+            HP: ${alive ? hp : "<span style='opacity:.75'>down</span>"}
+          </div>
+          <div class="rk">#${rk}</div>
+          ${edit}
+        </div>`;
+    }).join("");
+    attachSelfEditHandlers();
+  }
+
+  function attachSelfEditHandlers(){
+    const rn = document.getElementById("renameMe");
+    const ca = document.getElementById("changeAvatar");
+    if(rn){
+      rn.onclick = ()=>{
+        const v = prompt("Enter a new name:", myProfile.name||"");
+        if(!v) return;
+        myProfile.name = v.trim().slice(0,50) || myProfile.name;
+        selfEl.textContent = `you: ${myProfile.name}`;
+        upsertRoster(myUid, myProfile);
+        sendProfile();
+        renderScoreboard();
+      };
+    }
+    if(ca){
+      ca.onclick = ()=> avatarChangeEl.click();
+    }
+  }
+
+  avatarChangeEl.addEventListener("change", ()=>{
+    const f = avatarChangeEl.files && avatarChangeEl.files[0]; if(!f) return;
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      myProfile.avatar = reader.result;
+      upsertRoster(myUid, myProfile);
+      sendProfile();
+      renderScoreboard();
+    };
+    reader.readAsDataURL(f);
+    avatarChangeEl.value = "";
+  });
+
+  // ============================================================
+  //  CHAT
+  // ============================================================
+  function sendChat(t){
+    if(!t.trim()) return;
+    addMessage({text:t, from:"you", meta:`${myProfile.name} • ${fmtTime()}`});
+    const pkt = { t:"chat", text:t, from:{ uid: myUid, name: myProfile.name } };
+    const payload = JSON.stringify(pkt);
+    peers.forEach(peer => { try{ p2p.send(peer, payload); }catch(e){} });
+  }
+  sendBtn.onclick = ()=>{ sendChat(textEl.value); textEl.value=""; };
+  textEl.onkeydown = e => { if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); sendBtn.click(); } };
+
+  // ============================================================
+  //  JOIN / P2PT setup (adapted from your original)
+  // ============================================================
+  function joinRoom(roomId){
+    p2p?.destroy?.();
+    peers.clear(); nicks.clear(); peerIdToUid.clear(); roster.clear(); players.clear();
+    inputByUid.clear();
+    hostPeerId = null;
+    updatePeersUI();
+
+    if(typeof P2PT==="undefined"){ setNet("lib missing","bad"); return; }
+
+    // show self immediately
+    upsertRoster(myUid, myProfile);
+    ensurePlayer(myUid);
+
+    p2p = new P2PT(TRACKERS, roomId, { config: simplePeerConfig, trickle: true });
+    setNet("connecting…","warn");
+
+    p2p.on("peerconnect",(peer)=>{
+      peers.set(peer.id, peer);
+
+      // send intro/profile
+      try{
+        p2p.send(peer, JSON.stringify({
+          t:"intro", uid: myUid, role: myRole, name: myProfile.name, avatar: myProfile.avatar,
+          score: myProfile.score, kills: myProfile.kills, deaths: myProfile.deaths
+        }));
+      }catch{}
+
+      updatePeersUI();
+      setNet("online","ok");
+      if(DEBUG) addMessage({text:`connected ${peer.id}`, meta:`system • ${fmtTime()}`});
+    });
+
+    p2p.on("peerclose",(peer)=>{
+      peers.delete(peer.id); nicks.delete(peer.id); peerIdToUid.delete(peer.id);
+      updatePeersUI();
+      if(DEBUG) addMessage({text:`disconnected ${peer.id}`, meta:`system • ${fmtTime()}`});
+      if(!peers.size) setNet("waiting","warn");
+    });
+
+    p2p.on("msg",(peer,msg)=>{
+      try{
+        const d = typeof msg === "string" ? JSON.parse(msg) : msg;
+
+        // profile/intro
+        if(d?.t==="intro" || d?.t==="profile"){
+          const uid = d.uid || peer.id;
+          const theirRole = d.role || "guest";
+          peerIdToUid.set(peer.id, uid);
+          nicks.set(peer.id, d.name);
+          upsertRoster(uid, { name:d.name, avatar:d.avatar, score:d.score, kills:d.kills, deaths:d.deaths });
+
+          // star topology enforcement unless MESH
+          if(!MESH && myRole==="guest" && theirRole!=="host"){
+            try{ peer.destroy(); }catch{}
+            peers.delete(peer.id);
+            updatePeersUI();
+            return;
+          }
+          if(myRole==="guest" && theirRole==="host") hostPeerId = peer.id;
+
+          // host ensures entity exists
+          if(isHost) ensurePlayer(uid);
+
+          updatePeersUI();
+          return;
+        }
+
+        if(d?.t==="chat"){
+          const author = (d.from && d.from.name) ? d.from.name : (nicks.get(peer.id) || peer.id.slice(0,8));
+          addMessage({text:d.text, meta:`${author} • ${fmtTime()}`});
+
+          // host relays chat in STAR mode
+          if(isHost && !MESH && !d.relay && (!d.from || d.from.uid !== myUid)){
+            peers.forEach(p => {
+              if(p.id !== peer.id){
+                sendTo(p, { t:"chat", text:d.text, from:d.from || { uid: peerIdToUid.get(peer.id)||peer.id, name: author }, relay:true });
+              }
+            });
+          }
+          return;
+        }
+
+        // GAME messages
+        if(d?.t==="input"){ if(isHost) onInput(peer.id, d); return; }
+        if(d?.t==="state"){ if(!isHost) applyStateSnapshot(d); return; }
+        if(d?.t==="stateReq"){ if(isHost) sendStateTo(peer); return; }
+        if(d?.t==="respawn"){ if(isHost) onRespawnReq(peer.id, d); return; }
+
+      }catch(e){
+        if(DEBUG) console.warn("bad msg", e, msg);
+      }
+    });
+
+    p2p.start();
+
+    setTimeout(()=>{
+      selfEl.textContent = `you: ${myProfile.name}`;
+      sendProfile();
+      onboardEl.style.display = "none";
+
+      // start loops
+      startLoops();
+
+      // guests request immediate state
+      if(!isHost){
+        setTimeout(()=> broadcast({ t:"stateReq" }), 350);
+      } else {
+        // host sends initial state soon
+        setTimeout(()=> broadcastState(), 250);
+      }
+    }, 250);
+  }
+
+  function sendStateTo(peer){
+    // send roster + current state
+    sendTo(peer, buildStateSnapshot());
+  }
+
+  // ============================================================
+  //  INPUT / RESPAWN network handlers
+  // ============================================================
+  function onInput(peerId, d){
+    const uid = peerIdToUid.get(peerId);
+    if(!uid) return;
+    // keep last input
+    inputByUid.set(uid, {
+      ax: clamp(Number(d.ax||0), -1, 1),
+      ay: clamp(Number(d.ay||0), -1, 1),
+      dash: !!d.dash,
+      seq: Number(d.seq||0),
+      t: Number(d.t||0)
+    });
+  }
+
+  function onRespawnReq(peerId, d){
+    const uid = peerIdToUid.get(peerId);
+    if(!uid) return;
+    const p = players.get(uid);
+    if(p && !p.alive){
+      respawnPlayer(uid);
+      broadcastState();
+    }
+  }
+
+  // ============================================================
+  //  MAIN LOOPS
+  // ============================================================
+  function startLoops(){
+    stopLoops();
+
+    // render loop always local (host and guests)
+    let raf;
+    const frame = ()=>{
+      // guests: keep local input sending at frame rate (cheap packets)
+      if(!isHost) sendMyInput();
+
+      // host: also uses its own local input
+      if(isHost){
+        // host's own input is local computed each frame, but applied in simStep()
+        inputByUid.set(myUid, { ax: myInput.ax, ay: myInput.ay, dash: myInput.dash, seq: myInput.seq, t: myInput.t });
+      }
+
+      render();
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    startLoops._raf = raf;
+
+    // host simulation loop
+    if(isHost){
+      simTimer = setInterval(()=>{
+        // ensure every roster player has an entity
+        roster.forEach((_,uid)=> ensurePlayer(uid));
+        simStep();
+      }, 1000/GAME.tickHz);
+
+      netTimer = setInterval(()=> broadcastState(), 1000/GAME.netHz);
+    }
+  }
+
+  function stopLoops(){
+    if(startLoops._raf) cancelAnimationFrame(startLoops._raf);
+    startLoops._raf = null;
+    if(simTimer) clearInterval(simTimer);
+    if(netTimer) clearInterval(netTimer);
+    simTimer = netTimer = null;
+  }
+
+  function sendMyInput(){
+    // update myInput from keyboard/touch
+    const [kax,kay] = computeAxis();
+    const ax = (touchControls.style.display === "flex") ? touchAx : kax;
+    const ay = (touchControls.style.display === "flex") ? touchAy : kay;
+    myInput.ax = ax; myInput.ay = ay;
+    myInput.seq = (myInput.seq + 1) >>> 0;
+    myInput.t = now();
+
+    // send to host (star topology)
+    const pkt = { t:"input", uid: myUid, ax, ay, dash: !!myInput.dash, seq: myInput.seq, time: myInput.t };
+    // only send to hostPeerId if known, else broadcast
+    if(hostPeerId && peers.has(hostPeerId)){
+      sendTo(peers.get(hostPeerId), pkt);
+    } else {
+      broadcast(pkt);
+    }
+    // dash is one-shot
+    myInput.dash = false;
+  }
+
+  // respawn button
+  respawnBtn.onclick = ()=>{
+    if(isHost){
+      const me = players.get(myUid);
+      if(me && !me.alive){
+        respawnPlayer(myUid);
+        broadcastState();
+      }
+    } else {
+      broadcast({ t:"respawn", uid: myUid });
+    }
+  };
+
+  // ============================================================
+  //  MISC UI wiring (host/new room/copy invite)
+  // ============================================================
+  connectBtn.onclick = ()=>{
+    myProfile.name = nameEl.value.trim() || myProfile.name;
+    upsertRoster(myUid, myProfile);
+    ensurePlayer(myUid);
+    joinRoom(room || "p2pt-brawl-room");
+  };
+
+  copyBtn.onclick = async ()=>{
+    const u = new URL(location.href);
+    u.searchParams.set("room", room);
+    u.searchParams.delete("name");
+    try { await navigator.clipboard.writeText(u.toString()); setNet("invite copied","ok"); }
+    catch (e) { alert("Copy failed. Here is your link: \n" + u.toString()); }
+  };
+
+  newRoomBtn.onclick = ()=>{
+    const u = new URL(location.href);
+    u.searchParams.delete("room");
+    if(nameEl.value) u.searchParams.set("name", nameEl.value);
+    window.history.replaceState({}, "", u.toString());
+
+    isHost = true;
+    myRole = "host";
+    rolePill.textContent = `role: ${myRole}`;
+    room = `brawl-${Math.random().toString(36).slice(2,8)}`;
+    roomInfoEl.textContent = `room: ${room}`;
+    refreshHostControls();
+
+    // reset local stats optionally (keep avatar/name)
+    // myProfile.score = myProfile.kills = myProfile.deaths = 0;
+
+    joinRoom(room);
+    setNet("waiting","warn");
+  };
+
+  function escapeHtml(s) {
+    const map = {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"};
+    return (s || "").replace(/[&<>"']/g, c => map[c]);
+  }
+
+  // Auto-join on load (host only). Guests must enter a name and click Join.
+  if(isHost){
+    joinRoom(room);
+    setNet("waiting","warn");
+    onboardEl.style.display = "none";
+  } else {
+    setNet("enter name, then Join","warn");
+  }
+  </script>
+</body>
+</html>
