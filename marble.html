@@ -1097,6 +1097,8 @@ Tips:
       if(isHost){
         // host's own input is local computed each frame, but applied in simStep()
         inputByUid.set(myUid, { ax: myInput.ax, ay: myInput.ay, dash: myInput.dash, seq: myInput.seq, t: myInput.t });
+        // one-shot dash for host (mirror guest behavior, prevents re-triggering)
+        myInput.dash = false;
       }
 
       render();
