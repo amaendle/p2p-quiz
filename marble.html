@@ -432,11 +432,12 @@
 
   function refreshLocalInput(){
     const [kax,kay] = computeAxis();
-    const usingTouch = (touchControls.style.display === "flex");
-    const ax = usingTouch ? touchAx : kax;
-    const ay = usingTouch ? touchAy : kay;
-    myInput.ax = ax;
-    myInput.ay = ay;
+    const usingTouchUI = (touchControls.style.display === "flex");
+    const touchActive = usingTouchUI && (Math.abs(touchAx) + Math.abs(touchAy) > 0.001 || touching);
+    const keysActive = Math.abs(kax) + Math.abs(kay) > 0.001;
+    const ax = keysActive ? kax : (touchActive ? touchAx : kax);
+    const ay = keysActive ? kay : (touchActive ? touchAy : kay);
+    myInput.ax = ax; myInput.ay = ay;
     return [ax, ay];
   }
 
@@ -1084,14 +1085,20 @@ Tips:
   function onInput(peerId, d){
     const uid = peerIdToUid.get(peerId);
     if(!uid) return;
-    // keep last input
-    inputByUid.set(uid, {
+    const prev = inputByUid.get(uid);
+    const incoming = {
       ax: clamp(Number(d.ax||0), -1, 1),
       ay: clamp(Number(d.ay||0), -1, 1),
       dash: !!d.dash,
       seq: Number(d.seq||0),
       t: Number(d.t||0)
-    });
+    };
+    // keep the freshest axes, but never drop a queued dash until physics consumes it
+    if(prev && incoming.seq < prev.seq){
+      inputByUid.set(uid, { ...prev, dash: prev.dash || incoming.dash });
+    } else {
+      inputByUid.set(uid, { ...incoming, dash: (prev?.dash || incoming.dash) });
+    }
   }
 
   function onRespawnReq(peerId, d){
@@ -1122,7 +1129,14 @@ Tips:
         // host's own input is local computed each frame, but applied in simStep()
         myInput.seq = (myInput.seq + 1) >>> 0;
         myInput.t = now();
-        inputByUid.set(myUid, { ax: myInput.ax, ay: myInput.ay, dash: myInput.dash, seq: myInput.seq, t: myInput.t });
+        const prev = inputByUid.get(myUid);
+        inputByUid.set(myUid, {
+          ax: myInput.ax,
+          ay: myInput.ay,
+          dash: (prev?.dash || myInput.dash),
+          seq: myInput.seq,
+          t: myInput.t
+        });
         // one-shot dash for host (mirror guest behavior, prevents re-triggering)
         myInput.dash = false;
       }
