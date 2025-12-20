@@ -816,9 +816,12 @@ Tips:
   //  NETWORK SYNC (host->guests state snapshots)
   // ============================================================
   function buildStateSnapshot(){
+    const t = now();
     const ps = [];
     players.forEach((p,uid)=>{
-      ps.push([uid, p.x, p.y, p.vx, p.vy, p.r, p.hp, p.alive?1:0, p.invulnUntil, p.dashCdUntil, p.hue]);
+      const invulnMs = Math.max(0, p.invulnUntil - t);
+      const dashCdMs = Math.max(0, p.dashCdUntil - t);
+      ps.push([uid, p.x, p.y, p.vx, p.vy, p.r, p.hp, p.alive?1:0, invulnMs, dashCdMs, p.hue]);
     });
     return {
       t:"state",
@@ -850,11 +853,15 @@ Tips:
 
     // update players
     const seen = new Set();
+    const localNow = now();
     for(const row of (d.players||[])){
-      const [uid,x,y,vx,vy,r,hp,alive,inv,cd,hue] = row;
+      const [uid,x,y,vx,vy,r,hp,alive,invDur,cdDur,hue] = row;
       seen.add(uid);
       const p = players.get(uid) || {};
-      p.x=x; p.y=y; p.vx=vx; p.vy=vy; p.r=r; p.hp=hp; p.alive=!!alive; p.invulnUntil=inv; p.dashCdUntil=cd; p.hue=hue;
+      p.x=x; p.y=y; p.vx=vx; p.vy=vy; p.r=r; p.hp=hp; p.alive=!!alive;
+      p.invulnUntil = localNow + Math.max(0, invDur);
+      p.dashCdUntil = localNow + Math.max(0, cdDur);
+      p.hue=hue;
       players.set(uid,p);
     }
     // optional: prune unknowns slowly (don’t instantly delete to avoid flicker)
