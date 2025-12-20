@@ -62,6 +62,12 @@
   }
   .touchBtn { width: 120px; height: 120px; border-radius: 999px; font-weight:800; font-size: 16px; }
   .peerlist { font-size: 12px; opacity:.85; }
+
+  @media (max-width: 900px) {
+    .grid { grid-template-columns: 1fr; }
+    .hud { flex-direction: column; align-items: flex-start; }
+    .hud .right { width: 100%; justify-content: flex-start; }
+  }
 </style>
 </head>
 <body>
@@ -826,12 +832,14 @@ Tips:
     return {
       t:"state",
       time: now(),
+      sentAt: Date.now(),
       players: ps,
       board: [...roster.values()]
     };
   }
 
   function applyStateSnapshot(d){
+    const latency = d.sentAt ? Math.max(0, Date.now() - d.sentAt) : 0;
     // update roster
     const incoming = new Map();
     (d.board||[]).forEach(rec=>{
@@ -859,8 +867,10 @@ Tips:
       seen.add(uid);
       const p = players.get(uid) || {};
       p.x=x; p.y=y; p.vx=vx; p.vy=vy; p.r=r; p.hp=hp; p.alive=!!alive;
-      p.invulnUntil = localNow + Math.max(0, invDur);
-      p.dashCdUntil = localNow + Math.max(0, cdDur);
+      const invulnRemaining = Math.max(0, invDur - latency);
+      const dashCdRemaining = Math.max(0, cdDur - latency);
+      p.invulnUntil = localNow + invulnRemaining;
+      p.dashCdUntil = localNow + dashCdRemaining;
       p.hue=hue;
       players.set(uid,p);
     }
