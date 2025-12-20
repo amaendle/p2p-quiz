@@ -1005,6 +1005,13 @@ Tips:
         }));
       }catch{}
 
+      // immediately synchronize state to keep new joins snappy
+      if(isHost){
+        setTimeout(()=> sendStateTo(peer), 120);
+      } else {
+        try{ p2p.send(peer, JSON.stringify({ t:"stateReq" })); }catch{}
+      }
+
       updatePeersUI();
       setNet("online","ok");
       if(DEBUG) addMessage({text:`connected ${peer.id}`, meta:`system • ${fmtTime()}`});
