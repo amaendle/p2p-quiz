@@ -224,11 +224,12 @@
   const DEBUG = params.has("debug");
   const MESH  = params.has("mesh");
 
-  const defaultName = params.get("name") || `guest-${Math.random().toString(36).slice(2,6)}`;
   const hasRoom = params.has("room") && params.get("room");
   let room = hasRoom ? params.get("room") : `brawl-${Math.random().toString(36).slice(2,8)}`;
   let isHost = !hasRoom;
   let myRole = isHost ? "host" : "guest";
+  const invitedName = (params.get("name") || "").trim();
+  const defaultName = isHost ? "Player 1" : invitedName;
 
   // Stable UID per browser
   let myUid = localStorage.getItem("brawl_uid") || `u-${Math.random().toString(36).slice(2,10)}`;
@@ -281,6 +282,35 @@
   const nicks = new Map();     // peerId -> name
   const roster = new Map();    // uid -> {uid,name,avatar,score,kills,deaths}
   const peerIdToUid = new Map();
+
+  function normalizeName(n){ return (n || "").trim().toLowerCase(); }
+  function findAvailableName(preferred){
+    const taken = new Set();
+    roster.forEach(r => { if(r?.name) taken.add(normalizeName(r.name)); });
+
+    const want = (preferred || "").trim();
+    if(want && !taken.has(normalizeName(want))) return want;
+
+    const match = /^player\s+(\d+)/i.exec(want);
+    let n = match ? Number(match[1]) : 1;
+    while(true){
+      const candidate = `Player ${n}`;
+      if(!taken.has(normalizeName(candidate))) return candidate;
+      n++;
+    }
+  }
+
+  function ensureAvailableName(preferred){
+    const next = findAvailableName(preferred || myProfile.name);
+    if(next !== myProfile.name){
+      myProfile.name = next;
+      nameEl.value = next;
+      selfEl.textContent = `you: ${next}`;
+      upsertRoster(myUid, myProfile);
+      sendProfile();
+      renderScoreboard();
+    }
+  }
   let hostPeerId = null;       // guest learns this when connected to host
 
   function upsertRoster(uid, data){
@@ -858,6 +888,7 @@ Tips:
       myProfile.kills = mine.kills;
       myProfile.deaths = mine.deaths;
     }
+    ensureAvailableName(invitedName || myProfile.name);
 
     // update players
     const seen = new Set();
@@ -1032,9 +1063,20 @@ Tips:
         if(d?.t==="intro" || d?.t==="profile"){
           const uid = d.uid || peer.id;
           const theirRole = d.role || "guest";
+          const requestedName = (d.name || "").trim();
+          const assignedName = isHost
+            ? findAvailableName(requestedName || `Player ${Math.max(roster.size + 1, 2)}`)
+            : requestedName;
+
           peerIdToUid.set(peer.id, uid);
-          nicks.set(peer.id, d.name);
-          upsertRoster(uid, { name:d.name, avatar:d.avatar, score:d.score, kills:d.kills, deaths:d.deaths });
+          nicks.set(peer.id, assignedName);
+          upsertRoster(uid, { name:assignedName, avatar:d.avatar, score:d.score, kills:d.kills, deaths:d.deaths });
+
+          if(isHost && assignedName !== requestedName){
+            sendTo(peer, { t:"nameAssign", name: assignedName });
+          }
+
+          ensureAvailableName(invitedName || myProfile.name);
 
           // star topology enforcement unless MESH
           if(!MESH && myRole==="guest" && theirRole!=="host"){
@@ -1064,6 +1106,16 @@ Tips:
               }
             });
           }
+          return;
+        }
+
+        if(d?.t==="nameAssign" && typeof d.name === "string"){
+          myProfile.name = d.name.trim();
+          nameEl.value = myProfile.name;
+          selfEl.textContent = `you: ${myProfile.name}`;
+          upsertRoster(myUid, { name: myProfile.name });
+          sendProfile();
+          renderScoreboard();
           return;
         }
 
@@ -1227,6 +1279,7 @@ Tips:
   // ============================================================
   connectBtn.onclick = ()=>{
     myProfile.name = nameEl.value.trim() || myProfile.name;
+    ensureAvailableName(myProfile.name);
     upsertRoster(myUid, myProfile);
     ensurePlayer(myUid);
     joinRoom(room || "p2pt-brawl-room");
@@ -1265,13 +1318,14 @@ Tips:
     return (s || "").replace(/[&<>"']/g, c => map[c]);
   }
 
-  // Auto-join on load (host only). Guests must enter a name and click Join.
+  // Auto-join on load: host immediately; guests if an invite supplies a name.
   if(isHost){
     joinRoom(room);
     setNet("waiting","warn");
     onboardEl.style.display = "none";
   } else {
-    setNet("enter name, then Join","warn");
+    // auto-join guests; host will assign a free Player N name
+    connectBtn.click();
   }
   </script>
 </body>
