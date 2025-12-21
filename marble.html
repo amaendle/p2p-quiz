@@ -291,11 +291,13 @@
       if(r?.name) taken.add(normalizeName(r.name));
     });
 
-    const want = (preferred || "").trim();
-    if(want && !taken.has(normalizeName(want))) return want;
+    const wantRaw = (preferred || "").trim();
+    const wantNorm = normalizeName(wantRaw);
+    const reserved = new Set(["guest"]);
 
-    const match = /^player\s+(\d+)/i.exec(want);
-    let n = match ? Number(match[1]) : 1;
+    if(wantRaw && !reserved.has(wantNorm) && !taken.has(wantNorm)) return wantRaw;
+
+    let n = 1;
     while(true){
       const candidate = `Player ${n}`;
       if(!taken.has(normalizeName(candidate))) return candidate;
