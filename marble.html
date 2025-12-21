@@ -229,7 +229,7 @@
   let isHost = !hasRoom;
   let myRole = isHost ? "host" : "guest";
   const invitedName = (params.get("name") || "").trim();
-  const defaultName = isHost ? "Player 1" : invitedName;
+  const defaultName = isHost ? "Player 1" : (invitedName || "Guest");
 
   // Stable UID per browser
   let myUid = localStorage.getItem("brawl_uid") || `u-${Math.random().toString(36).slice(2,10)}`;
@@ -284,9 +284,12 @@
   const peerIdToUid = new Map();
 
   function normalizeName(n){ return (n || "").trim().toLowerCase(); }
-  function findAvailableName(preferred){
+  function findAvailableName(preferred, { excludeUid=null } = {}){
     const taken = new Set();
-    roster.forEach(r => { if(r?.name) taken.add(normalizeName(r.name)); });
+    roster.forEach((r,uid) => {
+      if(excludeUid && uid === excludeUid) return;
+      if(r?.name) taken.add(normalizeName(r.name));
+    });
 
     const want = (preferred || "").trim();
     if(want && !taken.has(normalizeName(want))) return want;
@@ -301,7 +304,7 @@
   }
 
   function ensureAvailableName(preferred){
-    const next = findAvailableName(preferred || myProfile.name);
+    const next = findAvailableName(preferred || myProfile.name, { excludeUid: myUid });
     if(next !== myProfile.name){
       myProfile.name = next;
       nameEl.value = next;
