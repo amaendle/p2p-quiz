@@ -1049,8 +1049,21 @@ Tips:
     });
 
     p2p.on("peerclose",(peer)=>{
-      peers.delete(peer.id); nicks.delete(peer.id); peerIdToUid.delete(peer.id);
+      const uid = peerIdToUid.get(peer.id);
+
+      peers.delete(peer.id);
+      nicks.delete(peer.id);
+      peerIdToUid.delete(peer.id);
+
+      if(uid){
+        roster.delete(uid);
+        players.delete(uid);
+        inputByUid.delete(uid);
+      }
+
       updatePeersUI();
+      renderScoreboard();
+
       if(DEBUG) addMessage({text:`disconnected ${peer.id}`, meta:`system • ${fmtTime()}`});
       if(!peers.size) setNet("waiting","warn");
     });
