@@ -284,6 +284,8 @@
   const peerIdToUid = new Map();
 
   function normalizeName(n){ return (n || "").trim().toLowerCase(); }
+  const reservedNames = new Set(["guest"]);
+  function isReservedName(n){ return reservedNames.has(normalizeName(n)); }
   function findAvailableName(preferred, { excludeUid=null } = {}){
     const taken = new Set();
     roster.forEach((r,uid) => {
@@ -292,10 +294,9 @@
     });
 
     const wantRaw = (preferred || "").trim();
-    const wantNorm = normalizeName(wantRaw);
-    const reserved = new Set(["guest"]);
 
-    if(wantRaw && !reserved.has(wantNorm) && !taken.has(wantNorm)) return wantRaw;
+    // Only coerce reserved/blank names; otherwise respect the requested name even if duplicate.
+    if(wantRaw && !isReservedName(wantRaw)) return wantRaw;
 
     let n = 1;
     while(true){
