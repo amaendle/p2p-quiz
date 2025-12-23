@@ -576,13 +576,18 @@ Tips:
     ctx.stroke();
 
     // hazard ring (visual)
-    ctx.setLineDash([10,10]);
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = "rgba(245,158,11,0.25)";
+    const hazardGlow = ctx.createRadialGradient(cx, cy, hazardRingR - 8, cx, cy, hazardRingR + 16);
+    hazardGlow.addColorStop(0, "rgba(249,115,22,0.25)");
+    hazardGlow.addColorStop(0.5, "rgba(239,68,68,0.55)");
+    hazardGlow.addColorStop(1, "rgba(248,113,113,0.15)");
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = hazardGlow;
+    ctx.shadowColor = "rgba(255,80,0,0.75)";
+    ctx.shadowBlur = 25;
     ctx.beginPath();
     ctx.arc(cx,cy,hazardRingR,0,Math.PI*2);
     ctx.stroke();
-    ctx.setLineDash([]);
+    ctx.shadowBlur = 0;
 
     // a few bumpers (static circles) to make it brawler-ish
     const bumps = [
