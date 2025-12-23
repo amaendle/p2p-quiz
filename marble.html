@@ -37,6 +37,8 @@
   .tile .sc { font-size:12px; opacity:.9; text-align:center; }
   .tile .rk { font-size:12px; opacity:.8; }
   .me { outline: 2px dashed #3b82f6; outline-offset: -6px; }
+  .tile.lagging { border-color: #7c4a03; box-shadow: 0 0 0 1px rgba(245,158,11,0.2); }
+  .lagFlag { font-size: 11px; color: #fbbf24; background: rgba(124,74,3,0.25); border: 1px solid #7c4a03; border-radius: 8px; padding: 2px 8px; }
 
   /* chat (optional) */
   .chat { height: 24vh; min-height: 160px; overflow: auto; background: #0f1114; border: 1px solid #2b3137; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
@@ -103,6 +105,7 @@
             <span class="pill" id="hpPill">HP: —</span>
             <span class="pill" id="dashPill">Dash: —</span>
             <span class="pill" id="fpsPill">—</span>
+            <span class="pill" id="latencyPill">ping: —</span>
           </div>
           <div class="right">
             <button id="respawn" class="btn sm" style="display:none">Respawn</button>
@@ -202,7 +205,7 @@
         scoreboardEl = $("#scoreboard"),
         avatarChangeEl = $("#avatarChange"),
         respawnBtn = $("#respawn"),
-        hpPill = $("#hpPill"), dashPill = $("#dashPill"), fpsPill = $("#fpsPill"),
+        hpPill = $("#hpPill"), dashPill = $("#dashPill"), fpsPill = $("#fpsPill"), latencyPill = $("#latencyPill"),
         helpBtn = $("#help"),
         canvas = $("#c"), ctx = canvas.getContext("2d"),
         touchControls = $("#touchControls"),
@@ -359,10 +362,13 @@
     cy: canvas.height/2,
     hazardRingR: Math.min(canvas.width, canvas.height) * 0.50, // outside = damage/kill
     tickHz: 60,
-    netHz: 20,
+    netHz: 30,
     dt: 1/60,
     maxPlayers: 16
   };
+
+  const LAG_WARN_MS = 400;
+  const LAG_BAD_MS = 900;
 
   // Entities (host-authoritative)
   // players[uid] = {x,y,vx,vy,r,hp,alive,invulnUntil,dashCdUntil,colorHue,lastHitBy,lastHitAt}
@@ -379,6 +385,9 @@
   // performance
   let lastFrameT = performance.now();
   let fpsSm = 60;
+  let lastSnapshotLatencyMs = 0;
+  let lastSnapshotAt = 0;
+  let lastScoreboardRefreshAt = 0;
 
   // helpers
   const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
@@ -396,6 +405,12 @@
     return (h % 360);
   }
 
+  function isLagging(uid){
+    const p = players.get(uid);
+    if(!p || !p.lastUpdate) return false;
+    return (now() - p.lastUpdate) > LAG_WARN_MS;
+  }
+
   function spawnPlayer(uid){
     const a = rand(0, Math.PI*2);
     const r = rand(0, GAME.arenaR*0.6);
@@ -410,6 +425,8 @@
       invulnUntil: 0,
       dashCdUntil: 0,
       hue,
+      lastUpdate: now(),
+      lastLatency: 0,
       lastHitBy: null,
       lastHitAt: 0
     });
@@ -592,6 +609,10 @@ Tips:
     const rec = roster.get(uid);
     const name = rec?.name || uid.slice(-4);
     const alive = p.alive;
+    const tNow = now();
+    const lagging = isLagging(uid);
+    const inv = (tNow < p.invulnUntil);
+    const staleFor = p.lastUpdate ? (tNow - p.lastUpdate) : 0;
 
     // body
     ctx.save();
@@ -606,8 +627,8 @@ Tips:
     // marble
     ctx.beginPath();
     ctx.arc(0,0,p.r,0,Math.PI*2);
-    const inv = (now() < p.invulnUntil);
-    const alpha = alive ? (inv ? 0.65 : 1.0) : 0.25;
+    let alpha = alive ? (inv ? 0.65 : 1.0) : 0.25;
+    if(lagging) alpha *= 0.6;
     ctx.fillStyle = `hsla(${p.hue}, 75%, 55%, ${alpha})`;
     ctx.fill();
     ctx.lineWidth = 2;
@@ -624,12 +645,18 @@ Tips:
     ctx.font = "12px system-ui";
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
-    ctx.fillStyle = "rgba(234,240,241,0.9)";
+    ctx.fillStyle = lagging ? "rgba(251,191,36,0.95)" : "rgba(234,240,241,0.9)";
     ctx.fillText(name, 0, -p.r-6);
+
+    if(lagging){
+      ctx.font = "11px system-ui";
+      ctx.fillStyle = "rgba(251,191,36,0.9)";
+      ctx.fillText(`lag ${Math.round(staleFor)}ms`, 0, -p.r-18);
+    }
 
     // HP bar
     const w = 42, h = 6;
-    ctx.globalAlpha = alive ? 1 : 0.25;
+    ctx.globalAlpha = (alive ? 1 : 0.25) * (lagging ? 0.65 : 1);
     ctx.fillStyle = "rgba(31,41,55,0.9)";
     ctx.fillRect(-w/2, p.r+6, w, h);
     ctx.fillStyle = "rgba(16,185,129,0.95)";
@@ -669,6 +696,24 @@ Tips:
     const fps = 1000/(dt||16.7);
     fpsSm = fpsSm*0.9 + fps*0.1;
     fpsPill.textContent = `fps: ${fpsSm.toFixed(0)}`;
+
+    if(isHost){
+      latencyPill.textContent = "ping: host";
+      latencyPill.className = "pill";
+    } else if(lastSnapshotAt){
+      const age = now() - lastSnapshotAt;
+      const cls = age > LAG_BAD_MS ? "bad" : age > LAG_WARN_MS ? "warn" : "ok";
+      latencyPill.textContent = `ping: ${Math.round(lastSnapshotLatencyMs)} ms${age > LAG_WARN_MS ? " (recovering)" : ""}`;
+      latencyPill.className = `pill ${cls}`;
+    } else {
+      latencyPill.textContent = "ping: —";
+      latencyPill.className = "pill warn";
+    }
+
+    if(now() - lastScoreboardRefreshAt > 500){
+      renderScoreboard();
+      lastScoreboardRefreshAt = now();
+    }
   }
 
   // ============================================================
@@ -728,6 +773,9 @@ Tips:
       // friction
       p.vx *= friction;
       p.vy *= friction;
+
+      p.lastUpdate = t;
+      p.lastLatency = 0;
     });
 
     // bumper collisions (static)
@@ -875,6 +923,8 @@ Tips:
 
   function applyStateSnapshot(d){
     const latency = d.sentAt ? Math.max(0, Date.now() - d.sentAt) : 0;
+    lastSnapshotLatencyMs = latency;
+    lastSnapshotAt = now();
     // update roster
     const incoming = new Map();
     (d.board||[]).forEach(rec=>{
@@ -908,6 +958,8 @@ Tips:
       p.invulnUntil = localNow + invulnRemaining;
       p.dashCdUntil = localNow + dashCdRemaining;
       p.hue=hue;
+      p.lastUpdate = localNow;
+      p.lastLatency = latency;
       players.set(uid,p);
     }
     // optional: prune unknowns slowly (don’t instantly delete to avoid flicker)
@@ -926,6 +978,8 @@ Tips:
   // ============================================================
   function renderScoreboard(){
     const list = [...roster.values()];
+    const tNow = now();
+    lastScoreboardRefreshAt = tNow;
     // sort by kills/score desc, then deaths asc, then name
     list.sort((a,b)=> (b.kills||b.score||0) - (a.kills||a.score||0)
                  || (a.deaths||0) - (b.deaths||0)
@@ -938,18 +992,27 @@ Tips:
       const p = players.get(r.uid);
       const hp = p ? (p.alive ? (p.hp|0) : 0) : 0;
       const alive = p ? p.alive : false;
+      const lastSeen = p?.lastUpdate ? (tNow - p.lastUpdate) : null;
+      const lagging = lastSeen !== null && lastSeen > LAG_WARN_MS;
+      const linkMs = (p && p.lastLatency !== undefined) ? p.lastLatency : (!isHost && lastSnapshotLatencyMs ? lastSnapshotLatencyMs : null);
+      const linkTxt = (linkMs !== null && linkMs !== undefined)
+        ? `${Math.round(linkMs)} ms`
+        : ((isHost && r.uid===myUid) ? "host" : "—");
+      const lagCls = lagging ? " lagging" : "";
       const edit = (r.uid===myUid)
         ? `<div style="display:flex; gap:6px"><button id="renameMe" class="btn sm">Rename</button><button id="changeAvatar" class="btn sm">Change avatar</button></div>`
         : "";
       return `
-        <div class="tile${me}">
+        <div class="tile${me}${lagCls}">
           ${img}
           <div class="nm">${nm}</div>
+          ${lagging ? `<div class="lagFlag">lagging</div>` : ""}
           <div class="sc">
             Kills: <b>${Number(r.kills||0)}</b> · Deaths: ${Number(r.deaths||0)}<br>
             HP: ${alive ? hp : "<span style='opacity:.75'>down</span>"}
           </div>
           <div class="rk">#${rk}</div>
+          <div class="rk" style="opacity:.78">Link: ${linkTxt}${lagging ? " • catching up" : ""}</div>
           ${edit}
         </div>`;
     }).join("");
