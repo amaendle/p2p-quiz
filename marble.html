@@ -360,7 +360,8 @@
     arenaR: Math.min(canvas.width, canvas.height) * 0.55,
     cx: canvas.width/2,
     cy: canvas.height/2,
-    hazardRingR: Math.min(canvas.width, canvas.height) * 0.46, // outside = damage/kill
+    hazardRingR: Math.min(canvas.width, canvas.height) * 0.46, // outside = hazard drain
+    hazardDps: 42,
     tickHz: 60,
     netHz: 30,
     dt: 1/60,
@@ -551,7 +552,7 @@
 • Dash: Space (or DASH button)
 Tips:
 • Dashing bumps others hard
-• Falling outside the hazard ring counts as a death`
+• Staying in the outer hazard ring rapidly drains HP`
     );
   };
 
@@ -894,11 +895,15 @@ Tips:
       const dy = p.y - GAME.cy;
       const d = Math.hypot(dx,dy);
 
-      // hazard outside hazardRingR: quick death (ring-out)
+      // hazard outside hazardRingR: drain health instead of instant death
       if(d > GAME.hazardRingR){
+        const hazardDmg = GAME.hazardDps * GAME.dt;
+        p.hp -= hazardDmg;
         const killer = (p.lastHitBy && (now()-p.lastHitAt) < 4000) ? p.lastHitBy : null;
-        killPlayer(uid, killer);
-        return;
+        if(p.hp <= 0){
+          killPlayer(uid, killer);
+          return;
+        }
       }
 
       // soft keep-inside main arena
