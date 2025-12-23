@@ -575,15 +575,27 @@ Tips:
     ctx.arc(cx,cy,arenaR,0,Math.PI*2);
     ctx.stroke();
 
-    // hazard ring (visual)
-    const hazardGlow = ctx.createRadialGradient(cx, cy, hazardRingR - 8, cx, cy, hazardRingR + 16);
-    hazardGlow.addColorStop(0, "rgba(249,115,22,0.25)");
-    hazardGlow.addColorStop(0.5, "rgba(239,68,68,0.55)");
-    hazardGlow.addColorStop(1, "rgba(248,113,113,0.15)");
-    ctx.lineWidth = 10;
-    ctx.strokeStyle = hazardGlow;
-    ctx.shadowColor = "rgba(255,80,0,0.75)";
-    ctx.shadowBlur = 25;
+    // hazard ring fill between hazard boundary and arena wall
+    const hazardRing = ctx.createRadialGradient(cx, cy, hazardRingR - 4, cx, cy, arenaR + 4);
+    hazardRing.addColorStop(0, "rgba(249,115,22,0.42)");
+    hazardRing.addColorStop(0.45, "rgba(249,115,22,0.28)");
+    hazardRing.addColorStop(0.75, "rgba(239,68,68,0.18)");
+    hazardRing.addColorStop(1, "rgba(248,113,113,0.06)");
+    ctx.beginPath();
+    ctx.arc(cx,cy,arenaR,0,Math.PI*2);
+    ctx.arc(cx,cy,hazardRingR,0,Math.PI*2,true);
+    ctx.closePath();
+    ctx.fillStyle = hazardRing;
+    ctx.shadowColor = "rgba(255,90,0,0.35)";
+    ctx.shadowBlur = 30;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // hazard boundary line (unchanged thickness, crisp edge)
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "rgba(249,115,22,0.85)";
+    ctx.shadowColor = "rgba(255,90,0,0.25)";
+    ctx.shadowBlur = 12;
     ctx.beginPath();
     ctx.arc(cx,cy,hazardRingR,0,Math.PI*2);
     ctx.stroke();
