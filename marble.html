@@ -360,7 +360,8 @@
     arenaR: Math.min(canvas.width, canvas.height) * 0.55,
     cx: canvas.width/2,
     cy: canvas.height/2,
-    hazardRingR: Math.min(canvas.width, canvas.height) * 0.46, // outside = damage/kill
+    hazardRingR: Math.min(canvas.width, canvas.height) * 0.46, // outside = hazard drain
+    hazardDps: 42,
     tickHz: 60,
     netHz: 30,
     dt: 1/60,
@@ -551,7 +552,7 @@
 • Dash: Space (or DASH button)
 Tips:
 • Dashing bumps others hard
-• Falling outside the hazard ring counts as a death`
+• Staying in the outer hazard ring rapidly drains HP`
     );
   };
 
@@ -575,14 +576,31 @@ Tips:
     ctx.arc(cx,cy,arenaR,0,Math.PI*2);
     ctx.stroke();
 
-    // hazard ring (visual)
-    ctx.setLineDash([10,10]);
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = "rgba(245,158,11,0.25)";
+    // hazard ring fill between hazard boundary and arena wall
+    const hazardRing = ctx.createRadialGradient(cx, cy, hazardRingR - 4, cx, cy, arenaR + 4);
+    hazardRing.addColorStop(0, "rgba(249,115,22,0.42)");
+    hazardRing.addColorStop(0.45, "rgba(249,115,22,0.28)");
+    hazardRing.addColorStop(0.75, "rgba(239,68,68,0.18)");
+    hazardRing.addColorStop(1, "rgba(248,113,113,0.06)");
+    ctx.beginPath();
+    ctx.arc(cx,cy,arenaR,0,Math.PI*2);
+    ctx.arc(cx,cy,hazardRingR,0,Math.PI*2,true);
+    ctx.closePath();
+    ctx.fillStyle = hazardRing;
+    ctx.shadowColor = "rgba(255,90,0,0.35)";
+    ctx.shadowBlur = 30;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // hazard boundary line (unchanged thickness, crisp edge)
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "rgba(249,115,22,0.85)";
+    ctx.shadowColor = "rgba(255,90,0,0.25)";
+    ctx.shadowBlur = 12;
     ctx.beginPath();
     ctx.arc(cx,cy,hazardRingR,0,Math.PI*2);
     ctx.stroke();
-    ctx.setLineDash([]);
+    ctx.shadowBlur = 0;
 
     // a few bumpers (static circles) to make it brawler-ish
     const bumps = [
@@ -877,11 +895,15 @@ Tips:
       const dy = p.y - GAME.cy;
       const d = Math.hypot(dx,dy);
 
-      // hazard outside hazardRingR: quick death (ring-out)
+      // hazard outside hazardRingR: drain health instead of instant death
       if(d > GAME.hazardRingR){
+        const hazardDmg = GAME.hazardDps * GAME.dt;
+        p.hp -= hazardDmg;
         const killer = (p.lastHitBy && (now()-p.lastHitAt) < 4000) ? p.lastHitBy : null;
-        killPlayer(uid, killer);
-        return;
+        if(p.hp <= 0){
+          killPlayer(uid, killer);
+          return;
+        }
       }
 
       // soft keep-inside main arena
